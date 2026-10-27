@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import EdgeCore
 
@@ -314,5 +315,55 @@ import Testing
     // Already inside: unchanged.
     let inside = CGRect(x: 10, y: 40, width: 100, height: 100)
     #expect(SplitLayout.fit(inside, into: area) == inside)
+  }
+}
+
+@Suite struct QuotaModelTests {
+  let now = QuotaModel.parseDate("2026-10-27T04:00:00Z")!
+
+  func feed(_ accounts: String) -> QuotaFeed {
+    try! QuotaFeed.decode(Data(#"{"feedVersion":1,"refreshIntervalSeconds":900,"accounts":[\#(accounts)]}"#.utf8))
+  }
+
+  func account(_ id: String, provider: String = "claude", state: String = "ok", measured: String = "2026-10-27T03:50:00Z", windows: String) -> String {
+    #"{"id":"\#(id)","provider":"\#(provider)","label":"\#(id)","state":"\#(state)","measuredAt":"\#(measured)","windows":[\#(windows)]}"#
+  }
+
+  @Test func classifiesUsableFableBlockedAndBlocked() {
+    let f = feed([
+      account("open", windows: #"{"key":"five_hour","usedPct":10},{"key":"weekly","usedPct":20},{"key":"weekly_fable","usedPct":30}"#),
+      account("nofable", windows: #"{"key":"five_hour","usedPct":10},{"key":"weekly_fable","usedPct":100,"resetsAt":"2026-10-30T20:00:00Z"}"#),
+      account("full", windows: #"{"key":"five_hour","usedPct":100,"resetsAt":"2026-10-27T06:00:00Z"},{"key":"weekly","usedPct":40}"#),
+    ].joined(separator: ","))
+    let views = QuotaModel.accounts(from: f, feedReachable: true, now: now)
+    #expect(views.map(\.id) == ["open", "nofable", "full"])
+    #expect(views[0].group == .usable && !views[0].fableBlocked)
+    #expect(views[1].group == .usable && views[1].fableBlocked)
+    #expect(views[1].fableFreeAt == QuotaModel.parseDate("2026-10-30T20:00:00Z"))
+    #expect(views[2].group == .blocked && views[2].overallFreeAt == QuotaModel.parseDate("2026-10-27T06:00:00Z"))
+  }
+
+  @Test func passedResetClearsTheReading() {
+    let f = feed(account("reset", windows: #"{"key":"five_hour","usedPct":100,"resetsAt":"2026-10-27T03:00:00Z"}"#))
+    let v = QuotaModel.accounts(from: f, feedReachable: true, now: now)[0]
+    #expect(v.fiveHour?.usedPct == nil)
+    #expect(v.group == .usable)
+  }
+
+  @Test func staleOrUnreachableIsNotTrusted() {
+    let stale = feed(account("old", measured: "2026-10-27T02:00:00Z", windows: #"{"key":"five_hour","usedPct":100}"#))
+    #expect(QuotaModel.accounts(from: stale, feedReachable: true, now: now)[0].condition == .unconfirmed)
+    let fresh = feed(account("fresh", windows: #"{"key":"five_hour","usedPct":100}"#))
+    let offline = QuotaModel.accounts(from: fresh, feedReachable: false, now: now)[0]
+    #expect(offline.condition == .unconfirmed && offline.group == .unknown && !offline.overallBlocked)
+  }
+
+  @Test func claudeBeforeCodexAndMostHeadroomFirst() {
+    let f = feed([
+      account("codex1", provider: "codex", windows: #"{"key":"weekly","usedPct":5}"#),
+      account("busy", windows: #"{"key":"five_hour","usedPct":60},{"key":"weekly_fable","usedPct":10}"#),
+      account("idle", windows: #"{"key":"five_hour","usedPct":0},{"key":"weekly_fable","usedPct":0}"#),
+    ].joined(separator: ","))
+    #expect(QuotaModel.accounts(from: f, feedReachable: true, now: now).map(\.id) == ["idle", "busy", "codex1"])
   }
 }

@@ -334,6 +334,7 @@ private struct DashboardTab: View {
       }
       UsageSection()
       WebPageSection(store: store)
+      QuotaFeedSection(store: store)
       DiscordSection(store: store)
       Section(tr("알림", "Notifications")) {
         Toggle(tr("Mac 알림을 Edge에 띄우기", "Show Mac notifications on the Edge"), isOn: $store.settings.notificationsEnabled)
@@ -396,9 +397,33 @@ extension WidgetKind {
     case .discord: return "Discord"
     case .web: return tr("웹페이지", "Web page")
     case .media: return tr("사진·영상", "Photo & video")
+    case .quotas: return tr("계정 사용량", "Account quotas")
     case .spacer: return tr("빈 공간", "Empty space")
     }
   }
+}
+
+// MARK: - Account quotas widget
+
+private struct QuotaFeedSection: View {
+  @ObservedObject var store: SettingsStore
+  @State private var draft = ""
+
+  var body: some View {
+    Section(tr("계정 사용량 위젯", "Account quotas widget")) {
+      HStack {
+        TextField(tr("피드 주소", "Feed address"), text: $draft, prompt: Text("http://127.0.0.1:8797/v1/usage"))
+          .onSubmit(apply)
+        Button(tr("적용", "Apply"), action: apply)
+          .disabled(draft == store.settings.quotaFeedURL)
+      }
+      Text(tr("여러 Claude·Codex 계정의 사용량을 주는 로컬 피드(계약 v1)를 읽어요.", "Reads a local feed (contract v1) listing usage for several Claude and Codex accounts."))
+        .font(.caption).foregroundStyle(.secondary)
+    }
+    .onAppear { draft = store.settings.quotaFeedURL }
+  }
+
+  private func apply() { store.settings.quotaFeedURL = draft.trimmingCharacters(in: .whitespaces) }
 }
 
 // MARK: - Web page widget

@@ -278,6 +278,7 @@ extension WidgetKind {
     case .discord: return "headphones"
     case .web: return "globe"
     case .media: return "photo.on.rectangle.angled"
+    case .quotas: return "gauge.with.dots.needle.67percent"
     case .spacer: return "square.dashed"
     }
   }

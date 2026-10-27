@@ -161,6 +161,7 @@ struct WidgetHost: View {
     case .discord: DiscordWidget()
     case .web: WebWidget()
     case .media: MediaWidget(slotID: slot.id)
+    case .quotas: QuotaWidget()
     case .spacer: Color.clear
     default: TelemetryWidget(kind: slot.kind, slotID: slot.id)
     }
