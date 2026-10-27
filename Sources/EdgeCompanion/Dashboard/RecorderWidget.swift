@@ -11,19 +11,34 @@ struct RecorderWidget: View {
   var body: some View {
     WidgetCard {
       GeometryReader { geo in
-        let compact = geo.size.height < 200
-        VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+        // Side by side when there is room; stacked in a narrow card.
+        let wide = geo.size.width >= geo.size.height * 1.15
+        let control = min(wide ? geo.size.height - 46 : geo.size.width * 0.62, 150)
+        VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 8) {
-            Image(systemName: "waveform").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.textSecondary)
-            Text(tr("통화 녹음", "Call recorder")).font(Theme.text(13.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
-            Spacer(minLength: 0)
+            Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+            Spacer(minLength: 4)
             if let error = service.error {
-              Text(error).font(Theme.text(11.5, weight: .medium)).foregroundStyle(Theme.warning).lineLimit(1)
+              Pill(text: error, color: Theme.warning).lineLimit(1)
+            } else {
+              stateBadge
             }
           }
-          Spacer(minLength: 0)
-          content(compact: compact)
-          Spacer(minLength: 0)
+          .frame(height: 30)
+          Group {
+            if wide {
+              HStack(spacing: 22) {
+                primary(size: control)
+                detail.frame(maxWidth: .infinity, alignment: .leading)
+              }
+            } else {
+              VStack(spacing: 14) {
+                primary(size: control)
+                detail.frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
+              }
+            }
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
       }
     }
@@ -31,103 +46,128 @@ struct RecorderWidget: View {
     .onDisappear { service.release() }
   }
 
+  @ViewBuilder private var stateBadge: some View {
+    switch service.phase {
+    case .recording: Pill(text: tr("녹음 중", "Live"), color: Theme.critical)
+    case .starting: Pill(text: tr("시작 중", "Starting"), color: Theme.warning)
+    case .transcribing: Pill(text: tr("받아쓰는 중", "Transcribing"), color: Theme.netIn)
+    case .sending: Pill(text: tr("보내는 중", "Sending"), color: Theme.netIn)
+    case .idle: EmptyView()
+    }
+  }
+
+  /// The big round control: Record, Stop (tap twice), or the transcription ring.
   @ViewBuilder
-  private func content(compact: Bool) -> some View {
+  private func primary(size: CGFloat) -> some View {
+    switch service.phase {
+    case .recording:
+      roundButton(size: size, color: Theme.critical, busy: service.requested == .stop) {
+        if confirmStop {
+          RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: size * 0.26, height: size * 0.26)
+          Text(tr("한 번 더", "Tap again")).font(Theme.text(13, weight: .bold)).foregroundStyle(.white).offset(y: size * 0.28)
+        } else {
+          RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: size * 0.3, height: size * 0.3)
+        }
+      } action: {
+        if confirmStop {
+          confirmStop = false
+          service.stop()
+        } else {
+          confirmStop = true
+          DispatchQueue.main.asyncAfter(deadline: .now() + 3) { confirmStop = false }
+        }
+      }
+    case let .transcribing(progress, _):
+      ZStack {
+        RingGauge(value: progress ?? 0, tint: Theme.netIn, lineWidth: 10)
+        Text(progress.map { "\(Int(($0 * 100).rounded()))%" } ?? "…").font(Theme.number(size * 0.24, weight: .bold)).foregroundStyle(Theme.textPrimary)
+      }
+      .frame(width: size, height: size)
+    case .starting, .sending:
+      ZStack {
+        Circle().stroke(Theme.track, lineWidth: 10).padding(5)
+        ProgressView().controlSize(.large).tint(Theme.textSecondary)
+      }
+      .frame(width: size, height: size)
+    case .idle:
+      roundButton(size: size, color: Theme.critical, busy: service.requested == .start) {
+        Circle().fill(.white).frame(width: size * 0.3, height: size * 0.3)
+      } action: {
+        service.start()
+      }
+    }
+  }
+
+  /// Words beside (or under) the control.
+  @ViewBuilder private var detail: some View {
     switch service.phase {
     case let .recording(since):
-      VStack(alignment: .leading, spacing: 10) {
-        HStack(spacing: 10) {
-          Circle().fill(Theme.critical).frame(width: 12, height: 12)
-            .opacity(pulse ? 0.35 : 1)
+      VStack(alignment: .leading, spacing: 6) {
+        Text(elapsed(since)).font(Theme.number(46, weight: .bold)).foregroundStyle(Theme.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
+        HStack(spacing: 7) {
+          Circle().fill(Theme.critical).frame(width: 10, height: 10)
+            .opacity(pulse ? 0.3 : 1)
             .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
             .onAppear { pulse = true }
             .onDisappear { pulse = false }
-          Text(tr("녹음 중", "Recording")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.critical)
+          Text(confirmStop ? tr("한 번 더 누르면 중지", "Tap again to stop") : tr("녹음 중", "Recording"))
+            .font(Theme.text(16, weight: .semibold)).foregroundStyle(Theme.critical)
         }
-        Text(elapsed(since)).font(Theme.number(compact ? 34 : 48, weight: .bold)).foregroundStyle(Theme.textPrimary)
-        actionButton(
-          title: confirmStop ? tr("한 번 더 눌러 중지", "Tap again to stop") : tr("중지", "Stop"),
-          symbol: "stop.fill", color: Theme.critical, busy: service.requested == .stop
-        ) {
-          if confirmStop {
-            confirmStop = false
-            service.stop()
-          } else {
-            confirmStop = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { confirmStop = false }
-          }
+      }
+    case let .transcribing(_, audioSeconds):
+      VStack(alignment: .leading, spacing: 6) {
+        Text(tr("받아쓰는 중", "Transcribing")).font(Theme.text(20, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+        if let audioSeconds {
+          Text(tr("녹음 \(duration(audioSeconds))", "\(duration(audioSeconds)) call")).font(Theme.text(15, weight: .medium)).foregroundStyle(Theme.textSecondary)
         }
+        Text(tr("끝나면 Discord로 보내요", "Then off to Discord")).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.textTertiary)
       }
     case .starting:
-      statusLine(tr("시작하는 중…", "Starting…"), color: Theme.warning, spinner: true)
-    case let .transcribing(progress, audioSeconds):
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(alignment: .firstTextBaseline) {
-          Text(tr("받아쓰는 중", "Transcribing")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.textPrimary)
-          Spacer(minLength: 4)
-          Text(progress.map { "\(Int(($0 * 100).rounded()))%" } ?? "…").font(Theme.number(compact ? 22 : 28, weight: .bold)).foregroundStyle(Theme.netIn)
-        }
-        UsageBar(value: progress ?? 0, tint: Theme.netIn, height: 8)
-        if let audioSeconds {
-          Text(tr("녹음 길이 \(duration(audioSeconds))", "\(duration(audioSeconds)) of audio")).font(Theme.text(12.5, weight: .medium)).foregroundStyle(Theme.textTertiary)
-        }
-      }
+      Text(tr("녹음기 준비 중…", "Getting the recorder ready…")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textSecondary)
     case .sending:
-      statusLine(tr("Discord로 보내는 중…", "Sending to Discord…"), color: Theme.netIn, spinner: true)
+      Text(tr("Discord로 보내는 중…", "Sending to Discord…")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textSecondary)
     case let .idle(last):
-      VStack(alignment: .leading, spacing: compact ? 8 : 12) {
-        actionButton(title: tr("녹음 시작", "Record"), symbol: "record.circle", color: Theme.critical, busy: service.requested == .start) {
-          service.start()
-        }
+      VStack(alignment: .leading, spacing: 6) {
+        Text(tr("녹음 시작", "Record")).font(Theme.text(20, weight: .semibold)).foregroundStyle(Theme.textPrimary)
         if let last {
           lastRun(last)
-        }
-      }
-    }
-  }
-
-  private func statusLine(_ text: String, color: Color, spinner: Bool) -> some View {
-    HStack(spacing: 10) {
-      if spinner { ProgressView().controlSize(.small).tint(color) }
-      Text(text).font(Theme.text(15, weight: .semibold)).foregroundStyle(color)
-    }
-  }
-
-  private func actionButton(title: String, symbol: String, color: Color, busy: Bool, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-      HStack(spacing: 8) {
-        if busy {
-          ProgressView().controlSize(.small).tint(.white)
         } else {
-          Image(systemName: symbol).font(.system(size: 16, weight: .bold))
+          Text(tr("Poly 버튼과 같아요", "Same as the Poly button")).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.textTertiary)
         }
-        Text(title).font(Theme.text(15, weight: .semibold))
       }
-      .foregroundStyle(.white)
-      .frame(maxWidth: .infinity, minHeight: 46)
-      .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(color.opacity(busy ? 0.45 : 0.85)))
-      .contentShape(Rectangle())
+    }
+  }
+
+  private func roundButton<Label: View>(size: CGFloat, color: Color, busy: Bool, @ViewBuilder label: () -> Label, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      ZStack {
+        Circle().fill(color.opacity(busy ? 0.4 : 0.9))
+        Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 3)
+        if busy { ProgressView().controlSize(.large).tint(.white) } else { label() }
+      }
+      .frame(width: size, height: size)
+      .contentShape(Circle())
     }
     .buttonStyle(.plain)
     .disabled(busy)
   }
 
   private func lastRun(_ last: RecorderLastRun) -> some View {
-    let (text, color): (String, Color) = switch last.outcome {
-    case .sent: (tr("Discord로 보냄", "Sent to Discord"), Theme.battery)
-    case .undelivered: (tr("받아쓰기 저장됨 · Discord 전송 실패", "Transcript saved · Discord hand-off failed"), Theme.warning)
-    case .empty: (tr("소리가 녹음되지 않음", "No audio captured"), Theme.warning)
-    case .failed: (tr("녹음 실패", "Recording failed"), Theme.critical)
-    case .startFailed: (tr("시작 실패", "Didn't start"), Theme.critical)
-    case let .other(s): (s, Theme.textTertiary)
+    let (text, symbol, color): (String, String, Color) = switch last.outcome {
+    case .sent: (tr("Discord로 보냄", "Sent to Discord"), "checkmark.circle.fill", Theme.battery)
+    case .undelivered: (tr("받아쓰기만 저장됨", "Saved, not sent"), "exclamationmark.triangle.fill", Theme.warning)
+    case .empty: (tr("소리가 녹음되지 않음", "No audio captured"), "exclamationmark.triangle.fill", Theme.warning)
+    case .failed: (tr("녹음 실패", "Recording failed"), "xmark.octagon.fill", Theme.critical)
+    case .startFailed: (tr("시작 실패", "Didn't start"), "xmark.octagon.fill", Theme.critical)
+    case let .other(s): (s, "questionmark.circle", Theme.textTertiary)
     }
     var parts: [String] = []
     if let ended = last.endedAt { parts.append(clock(ended)) }
     if let secs = last.audioSeconds { parts.append(duration(secs)) }
     return VStack(alignment: .leading, spacing: 3) {
-      Text(text).font(Theme.text(13, weight: .semibold)).foregroundStyle(color).lineLimit(2)
-      Text(tr("마지막 녹음", "Last") + (parts.isEmpty ? "" : " · " + parts.joined(separator: " · ")))
-        .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1).minimumScaleFactor(0.8)
+      Text(tr("마지막 통화", "Last call") + (parts.isEmpty ? "" : " · " + parts.joined(separator: " · ")))
+        .font(Theme.text(13.5, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1).minimumScaleFactor(0.8)
+      Label(text, systemImage: symbol).font(Theme.text(15, weight: .semibold)).foregroundStyle(color).lineLimit(2)
     }
   }
 
@@ -140,7 +180,8 @@ struct RecorderWidget: View {
 
   private func duration(_ seconds: Double) -> String {
     let total = Int(seconds.rounded())
-    return total >= 3600 ? "\(total / 3600)h \((total % 3600) / 60)m" : "\(total / 60)m \(total % 60)s"
+    if total >= 3600 { return "\(total / 3600)h \((total % 3600) / 60)m" }
+    return total >= 60 ? "\(total / 60)m \(total % 60)s" : "\(total)s"
   }
 
   private func clock(_ date: Date) -> String {
