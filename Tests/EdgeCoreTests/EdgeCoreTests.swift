@@ -367,3 +367,48 @@ import Testing
     #expect(QuotaModel.accounts(from: f, feedReachable: true, now: now).map(\.id) == ["idle", "busy", "codex1"])
   }
 }
+
+@Suite struct RecorderModelTests {
+  let now = QuotaModel.parseDate("2026-10-27T04:00:00Z")!
+
+  func status(_ phase: String, result: String? = nil, updated: String = "2026-10-27T03:59:50Z", audio: Double? = nil) -> RecorderStatusFile {
+    RecorderStatusFile(phase: phase, result: result, detail: nil, name: "local-meeting", startedAt: "2026-10-27T03:30:00Z", stoppedAt: nil, audioSeconds: audio, updatedAt: updated)
+  }
+
+  @Test func liveCaptureWins() {
+    let since = QuotaModel.parseDate("2026-10-27T03:30:05Z")
+    #expect(RecorderModel.phase(status: status("recording"), captureAlive: true, captureReady: true, readySince: since, logTail: nil, now: now) == .recording(since: since))
+    #expect(RecorderModel.phase(status: nil, captureAlive: true, captureReady: false, readySince: nil, logTail: nil, now: now) == .starting)
+  }
+
+  @Test func recordingStatusWithoutCaptureIsLaunchGapThenStale() {
+    #expect(RecorderModel.phase(status: status("recording"), captureAlive: false, captureReady: false, readySince: nil, logTail: nil, now: now) == .starting)
+    let stale = status("recording", updated: "2026-10-27T03:00:00Z")
+    #expect(RecorderModel.phase(status: stale, captureAlive: false, captureReady: false, readySince: nil, logTail: nil, now: now) == .idle(last: nil))
+  }
+
+  @Test func transcriptionProgressFromCurrentRunOnly() {
+    let old = "[00:19:20.780 --> 00:19:20.980]  (speaker 0) Bye.\nTranscript saved to: /x/old.txt\n"
+    let current = old + "Transcribing: /x/new.wav\n[00:00:00.000 --> 00:00:04.000]  hi\n[00:04:58.000 --> 00:05:00.000]  more\n"
+    #expect(RecorderModel.transcriptionProgress(logTail: current, audioSeconds: 600) == 0.5)
+    // Started but nothing printed yet: no progress, not the old run's.
+    #expect(RecorderModel.transcriptionProgress(logTail: old + "Transcribing: /x/new.wav\n", audioSeconds: 600) == nil)
+    // Only an older run's lines in view, with or without its own marker.
+    #expect(RecorderModel.transcriptionProgress(logTail: old, audioSeconds: 600) == nil)
+    #expect(RecorderModel.transcriptionProgress(logTail: "Transcribing: /x/old.wav\n" + old, audioSeconds: 600) == nil)
+    let phase = RecorderModel.phase(status: status("transcribing", audio: 600), captureAlive: false, captureReady: false, readySince: nil, logTail: current, now: now)
+    #expect(phase == .transcribing(progress: 0.5, audioSeconds: 600))
+  }
+
+  @Test func doneMapsOutcome() {
+    let phase = RecorderModel.phase(status: status("done", result: "undelivered", audio: 1161), captureAlive: false, captureReady: false, readySince: nil, logTail: nil, now: now)
+    guard case let .idle(last?) = phase else { Issue.record("expected idle with last run"); return }
+    #expect(last.outcome == .undelivered && last.audioSeconds == 1161)
+  }
+
+  @Test func decodesPipelineStatusFile() {
+    let json = #"{"version":1,"phase":"done","result":"sent","detail":"transcript saved","name":"local-meeting","startedAt":"2026-10-27T03:30:00Z","stoppedAt":"2026-10-27T03:50:00Z","audioSeconds":1200,"updatedAt":"2026-10-27T03:52:00Z"}"#
+    let s = RecorderStatusFile.decode(Data(json.utf8))
+    #expect(s?.result == "sent" && s?.audioSeconds == 1200)
+  }
+}

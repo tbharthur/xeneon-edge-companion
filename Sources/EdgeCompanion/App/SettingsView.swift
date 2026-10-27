@@ -335,6 +335,7 @@ private struct DashboardTab: View {
       UsageSection()
       WebPageSection(store: store)
       QuotaFeedSection(store: store)
+      RecorderSection(store: store)
       DiscordSection(store: store)
       Section(tr("알림", "Notifications")) {
         Toggle(tr("Mac 알림을 Edge에 띄우기", "Show Mac notifications on the Edge"), isOn: $store.settings.notificationsEnabled)
@@ -398,6 +399,7 @@ extension WidgetKind {
     case .web: return tr("웹페이지", "Web page")
     case .media: return tr("사진·영상", "Photo & video")
     case .quotas: return tr("계정 사용량", "Account quotas")
+    case .recorder: return tr("통화 녹음", "Call recorder")
     case .spacer: return tr("빈 공간", "Empty space")
     }
   }
@@ -424,6 +426,22 @@ private struct QuotaFeedSection: View {
   }
 
   private func apply() { store.settings.quotaFeedURL = draft.trimmingCharacters(in: .whitespaces) }
+}
+
+// MARK: - Recorder widget
+
+private struct RecorderSection: View {
+  @ObservedObject var store: SettingsStore
+
+  var body: some View {
+    Section(tr("통화 녹음 위젯", "Call recorder widget")) {
+      TextField(tr("녹음 스크립트", "Recorder script"), text: $store.settings.recorderScript)
+      TextField(tr("녹음할 출력 장치", "Output device to record"), text: $store.settings.recorderOutputDevice)
+      TextField(tr("녹음 이름", "Recording name"), text: $store.settings.recorderName)
+      Text(tr("녹음 버튼은 이 스크립트를 'start'와 'stop'으로 실행해요.", "The buttons run this script with 'start' and 'stop'."))
+        .font(.caption).foregroundStyle(.secondary)
+    }
+  }
 }
 
 // MARK: - Web page widget

@@ -29,6 +29,8 @@ enum WidgetKind: String, Codable, CaseIterable, Identifiable {
   case media
   /// Every account from a local multi-account usage feed (`AppSettings.quotaFeedURL`).
   case quotas
+  /// The local meeting recorder: record/stop, running time, transcription and hand-off status.
+  case recorder
   /// An empty cell for spacing; any number of them may be placed.
   case spacer
   var id: String { rawValue }
@@ -174,6 +176,10 @@ struct AppSettings: Codable, Equatable {
   var discordClientID = ""
   /// Multi-account usage feed read by the account quotas widget.
   var quotaFeedURL = "http://127.0.0.1:8797/v1/usage"
+  /// Recorder widget: the pipeline script, the output device to record from, and the recording name.
+  var recorderScript = "~/Dev/assistant/tools/meeting-recorder/record.sh"
+  var recorderOutputDevice = "Poly Sync 20-M"
+  var recorderName = "local-meeting"
   /// Show each Mac notification banner across the dashboard for a moment.
   var notificationsEnabled = false
   /// Media widget files by slot id (uuidString).
@@ -230,6 +236,9 @@ struct AppSettings: Codable, Equatable {
     discordClientID = v(.discordClientID, discordClientID)
     notificationsEnabled = v(.notificationsEnabled, notificationsEnabled)
     quotaFeedURL = v(.quotaFeedURL, quotaFeedURL)
+    recorderScript = v(.recorderScript, recorderScript)
+    recorderOutputDevice = v(.recorderOutputDevice, recorderOutputDevice)
+    recorderName = v(.recorderName, recorderName)
     mediaItems = v(.mediaItems, mediaItems)
     profiles = v(.profiles, profiles)
   }
