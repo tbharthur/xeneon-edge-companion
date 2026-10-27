@@ -412,3 +412,16 @@ import Testing
     #expect(s?.result == "sent" && s?.audioSeconds == 1200)
   }
 }
+
+@Suite struct MenuBarInsetTests {
+  @Test func dropsTheMenuBarStripInBothCoordinateSystems() {
+    let quartz = CGRect(x: 1127, y: 1600, width: 2560, height: 720)
+    let dash = SplitLayout.dashboardRect(in: quartz, side: .right, length: 480)
+    #expect(SplitLayout.belowMenuBar(dash, display: quartz, menuBar: 30) == CGRect(x: 3207, y: 1630, width: 480, height: 690))
+    let appKit = CGRect(x: 1127, y: -720, width: 2560, height: 720)
+    let dashAK = SplitLayout.dashboardRect(in: appKit, side: .right, length: 480, yDown: false)
+    #expect(SplitLayout.belowMenuBar(dashAK, display: appKit, menuBar: 30, yDown: false) == CGRect(x: 3207, y: -720, width: 480, height: 690))
+    // Auto-hidden menu bar: unchanged.
+    #expect(SplitLayout.belowMenuBar(dash, display: quartz, menuBar: 0) == dash)
+  }
+}
