@@ -57,20 +57,32 @@ final class PointerGuard {
   /// Moves the Dock off the Edge when the Dock lock is on.
   let dockRelocator = DockRelocator()
 
+  private var unlockObserver: NSObjectProtocol?
+
   init() {
     screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
       self?.refreshGeometry()
       self?.checkDock()
     }
+    // The Dock usually lands on the Edge during wake; unlock is the first moment it can be moved.
+    unlockObserver = DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+      self?.checkDock(after: 0.3)
+    }
   }
 
-  /// Wake, unlock and display changes can leave the Dock on the wrong display.
-  func checkDock(after delay: TimeInterval = 1.5) {
+  /// Wake, unlock and display changes can leave the Dock on the wrong display. Keeps the watch
+  /// armed while the Dock lock is on and the Edge is present, and looks again after `delay`.
+  func checkDock(after delay: TimeInterval = 0.5) {
     lock.lock()
     let on = dockLock
     let edge = edgeBounds
     lock.unlock()
-    if on, let edge { dockRelocator.check(after: delay, ifOn: edge) } else { dockRelocator.cancel() }
+    if on, let edge {
+      dockRelocator.arm(edge: edge)
+      dockRelocator.nudge(after: delay)
+    } else {
+      dockRelocator.disarm()
+    }
   }
 
   /// `fence` is the area the pointer stays out of (nil: none); the tap keeps running while the Dock lock is on.
@@ -85,7 +97,12 @@ final class PointerGuard {
     wasDockLock = dockLock
     lock.unlock()
     refreshGeometry()
-    if dockLockTurnedOn { checkDock(after: 0.5) }
+    if dockLock, let edgeBounds {
+      dockRelocator.arm(edge: edgeBounds)
+      if dockLockTurnedOn { dockRelocator.nudge(after: 0.5) }
+    } else {
+      dockRelocator.disarm()
+    }
     if wanted { start() } else { stop() }
   }
 

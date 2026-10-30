@@ -3,9 +3,13 @@ import CoreGraphics
 import EdgeCore
 
 /// Moves the Dock to the main display by replaying what a user does: a short push against a free
-/// stretch of the main display's Dock edge. Used when the Dock has ended up on the Edge (e.g. after
-/// wake), and when the user pushes down against the fenced bottom of the main display, where most
-/// of the edge borders the Edge and macOS itself would not summon the Dock.
+/// stretch of the main display's Dock edge. Used when the Dock has ended up on the Edge, and when
+/// the user pushes down against the fenced bottom of the main display, where most of the edge
+/// borders the Edge and macOS itself would not summon the Dock.
+///
+/// macOS itself puts the Dock on the Edge during the display reconfiguration of most wakes, before
+/// the session is even unlocked. While armed, a light watch (about 1 ms a second) moves it back as
+/// soon as the session is unlocked, and keeps retrying with backoff if a push does not take.
 /// Approach adapted from DockAnchor (MIT, bwya77).
 final class DockRelocator {
   private let queue = DispatchQueue(label: "pro.seol.EdgeCompanion.dock", qos: .userInitiated)
@@ -13,14 +17,61 @@ final class DockRelocator {
   private var running = false
   private var lastSummon: TimeInterval = 0
 
-  /// Checks after `delay` and relocates if needed. Repeated calls collapse into one check.
-  func check(after delay: TimeInterval = 1.5, ifOn edge: CGRect) {
+  // Watch state (main thread).
+  private var watchedEdge: CGRect?
+  private var watchTimer: Timer?
+  /// Failed relocation rounds in a row; spaces out further tries so a stuck Dock never turns
+  /// into the cursor being yanked every second.
+  private var failures = 0
+  private var nextTryAt: TimeInterval = 0
+
+  /// Starts (or retargets) the watch that keeps the Dock off `edge`. Main thread.
+  func arm(edge: CGRect) {
+    watchedEdge = edge
+    guard watchTimer == nil else { return }
+    let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in self?.tick() }
+    t.tolerance = 0.2
+    RunLoop.main.add(t, forMode: .common)
+    watchTimer = t
+  }
+
+  /// Stops the watch and any pending check. Main thread.
+  func disarm() {
+    watchedEdge = nil
+    watchTimer?.invalidate()
+    watchTimer = nil
+    cancel()
+  }
+
+  /// Unlock or a display change: look again now instead of waiting for the next tick, and drop
+  /// any backoff left from before.
+  func nudge(after delay: TimeInterval = 0.3) {
+    failures = 0
+    nextTryAt = 0
     pending?.cancel()
-    let work = DispatchWorkItem { [weak self] in
-      self?.moveToMain(attempt: 1, reason: "the Dock landed on the Edge") { $0.equalTo(edge) }
-    }
+    let work = DispatchWorkItem { [weak self] in self?.tick() }
     pending = work
     DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+  }
+
+  private func tick() {
+    guard let edge = watchedEdge, !running else { return }
+    let now = ProcessInfo.processInfo.systemUptime
+    guard now >= nextTryAt else { return }
+    // A push is pointless behind the lock screen; the Dock is hidden there anyway.
+    guard !Self.screenIsLocked() else { return }
+    guard let dockDisplay = Self.currentDockDisplay() else { return }
+    guard dockDisplay.equalTo(edge) else {
+      failures = 0
+      return
+    }
+    moveToMain(attempt: 1, reason: failures == 0 ? "the Dock landed on the Edge" : "the Dock is still on the Edge (retry \(failures))") { $0.equalTo(edge) }
+  }
+
+  /// True while the login window's lock screen is up.
+  static func screenIsLocked() -> Bool {
+    guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+    return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
   }
 
   /// The user is pushing down at the bottom of the main display: bring the Dock if it is elsewhere.
@@ -52,7 +103,7 @@ final class DockRelocator {
 
   /// Moves the Dock to the main display if `shouldMove(dockDisplay)` holds. Main thread.
   private func moveToMain(attempt: Int, reason: String, shouldMove: @escaping (CGRect) -> Bool) {
-    guard !running, Permissions.canPostEvents else { return }
+    guard !running, Permissions.canPostEvents, !Self.screenIsLocked() else { return }
     let main = CGDisplayBounds(CGMainDisplayID())
     guard let dockDisplay = Self.currentDockDisplay(), !dockDisplay.equalTo(main), shouldMove(dockDisplay) else { return }
     // Never fight the user mid-drag.
@@ -61,6 +112,7 @@ final class DockRelocator {
     let edge = PointerMath.DockEdge(rawValue: orientation ?? "bottom") ?? .bottom
     guard let trigger = PointerMath.dockTriggerPoint(on: main, edge: edge, displays: EdgeLocator.allBounds()) else {
       Log.info(.pointer, "dock is on another display but the main display has no free \(edge.rawValue) edge")
+      nextTryAt = ProcessInfo.processInfo.systemUptime + 30
       return
     }
     running = true
@@ -73,8 +125,16 @@ final class DockRelocator {
         let now = Self.currentDockDisplay()
         if let now, !now.equalTo(main), shouldMove(now), attempt < 2 {
           self.moveToMain(attempt: attempt + 1, reason: reason, shouldMove: shouldMove)
+          return
+        }
+        if let now, !now.equalTo(main), shouldMove(now) {
+          self.failures += 1
+          let wait = min(60, 5 * pow(2, Double(self.failures - 1)))
+          self.nextTryAt = ProcessInfo.processInfo.systemUptime + wait
+          Log.info(.pointer, "Dock did not move (\(now)); trying again in \(Int(wait)) s")
         } else {
-          Log.info(.pointer, now.map { $0.equalTo(main) ? "Dock is on the main display" : "Dock did not move (\($0))" } ?? "Dock not visible")
+          self.failures = 0
+          Log.info(.pointer, now.map { $0.equalTo(main) ? "Dock is on the main display" : "Dock is on \($0)" } ?? "Dock not visible")
         }
       }
     }

@@ -79,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     color.edgeChanged(state)
     if state.display == nil, touchTest.isOpen { touchTest.close() }
     // Wake and unlock show up as state changes; the Dock may have moved meanwhile.
-    if state.isActive { pointerGuard.checkDock(after: 3) }
+    if state.isActive { pointerGuard.checkDock(after: 0.3) }
     let calibration = state.display.map { store.profile(for: $0.profileKey).touchCalibration } ?? .identity
     touch.edgeChanged(state, calibration: calibration)
     kiosk.update(state: state, enabled: s.dashboardEnabled, split: Self.split(s))
