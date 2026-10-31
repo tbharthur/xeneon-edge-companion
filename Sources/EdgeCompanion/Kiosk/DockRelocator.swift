@@ -25,6 +25,11 @@ final class DockRelocator {
   private var failures = 0
   private var nextTryAt: TimeInterval = 0
 
+  /// Called on the main thread just before a push, and after it with whether the Dock is now on
+  /// the main display.
+  var onWillMove: (() -> Void)?
+  var onMoved: ((Bool) -> Void)?
+
   /// Starts (or retargets) the watch that keeps the Dock off `edge`. Main thread.
   func arm(edge: CGRect) {
     watchedEdge = edge
@@ -116,6 +121,7 @@ final class DockRelocator {
       return
     }
     running = true
+    onWillMove?()
     Log.info(.pointer, "moving the Dock from \(dockDisplay) to the main display via \(trigger): \(reason) (attempt \(attempt))")
     queue.async { [weak self] in
       CursorHider.whileHidden { Self.push(toward: trigger, edge: edge) }
@@ -132,9 +138,11 @@ final class DockRelocator {
           let wait = min(60, 5 * pow(2, Double(self.failures - 1)))
           self.nextTryAt = ProcessInfo.processInfo.systemUptime + wait
           Log.info(.pointer, "Dock did not move (\(now)); trying again in \(Int(wait)) s")
+          self.onMoved?(false)
         } else {
           self.failures = 0
           Log.info(.pointer, now.map { $0.equalTo(main) ? "Dock is on the main display" : "Dock is on \($0)" } ?? "Dock not visible")
+          self.onMoved?(now?.equalTo(main) ?? false)
         }
       }
     }

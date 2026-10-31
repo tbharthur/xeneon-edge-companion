@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   let touch = TouchController()
   let pointerGuard = PointerGuard()
   let evictor = WindowEvictor()
+  let frameKeeper = WindowFrameKeeper()
   let touchTest = TouchTestController()
   lazy var color = ColorService(settings: store)
   lazy var kiosk = KioskController {
@@ -46,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self?.reconfigureInputGuards()
     }
     pointerGuard.onStatus = { [weak self] s in self?.model.pointerStatus = s }
+    pointerGuard.dockRelocator.onWillMove = { [weak self] in self?.frameKeeper.dockWillMove() }
+    pointerGuard.dockRelocator.onMoved = { [weak self] ok in self?.frameKeeper.dockMoved(toMain: ok) }
 
     store.$settings
       .removeDuplicates()
@@ -111,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let covered = kiosk.coveredBounds
     pointerGuard.configure(edgeBounds: display?.bounds, fence: s.mouseFenceEnabled ? covered : nil, allowOptionEntry: s.fenceBypassWithOption, dockLock: s.dockLockEnabled)
     evictor.configure(covered: s.evictWindows ? covered : nil, edgeBounds: display?.bounds, freeArea: display.flatMap { freeArea(on: $0, s) })
+    frameKeeper.configure(edgeBounds: display?.bounds, enabled: s.dockLockEnabled)
   }
 
   /// Split mode: the Edge's regular part below its menu bar, in global Quartz points.

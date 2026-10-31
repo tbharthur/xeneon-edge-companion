@@ -154,7 +154,7 @@ final class WindowEvictor {
       return
     }
     for w in windows {
-      guard let frame = axFrame(w), abs(frame.minX - windowRect.minX) < 2, abs(frame.minY - windowRect.minY) < 2 else { continue }
+      guard let frame = AXWindows.frame(w), abs(frame.minX - windowRect.minX) < 2, abs(frame.minY - windowRect.minY) < 2 else { continue }
       var origin = target.origin
       var size = target.size
       if let posValue = AXValueCreate(.cgPoint, &origin) {
@@ -171,7 +171,7 @@ final class WindowEvictor {
       Log.info(.evictor, "moved a \(ownerName) window out from under the dashboard")
       return
     }
-    Log.error(.evictor, "no AX window of \(ownerName) matches \(windowRect); AX frames: \(windows.compactMap(axFrame))")
+    Log.error(.evictor, "no AX window of \(ownerName) matches \(windowRect); AX frames: \(windows.compactMap(AXWindows.frame))")
   }
 
   /// Where to put an evicted window: the main display's visible area, in global Quartz coordinates.
@@ -184,18 +184,5 @@ final class WindowEvictor {
     let w = min(size.width, maxW)
     let h = min(size.height, maxH)
     return CGRect(x: main.midX - w / 2, y: main.minY + menuBar + max((maxH - h) / 2, 0), width: w, height: h)
-  }
-
-  private func axFrame(_ w: AXUIElement) -> CGRect? {
-    var posRef: CFTypeRef?
-    var sizeRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(w, kAXPositionAttribute as CFString, &posRef) == .success,
-          AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &sizeRef) == .success,
-          let posRef, let sizeRef else { return nil }
-    var p = CGPoint.zero
-    var s = CGSize.zero
-    AXValueGetValue(posRef as! AXValue, .cgPoint, &p)
-    AXValueGetValue(sizeRef as! AXValue, .cgSize, &s)
-    return CGRect(origin: p, size: s)
   }
 }

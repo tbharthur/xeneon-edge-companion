@@ -425,3 +425,29 @@ import Testing
     #expect(SplitLayout.belowMenuBar(dash, display: quartz, menuBar: 0) == dash)
   }
 }
+
+@Suite struct WindowRestoreTests {
+  let edge = CGRect(x: 666, y: 1600, width: 2560, height: 720)
+  let before = CGRect(x: 700, y: 1630, width: 1200, height: 680)
+
+  @Test func restoresWindowShrunkForTheDock() {
+    let shrunk = CGRect(x: 700, y: 1630, width: 1200, height: 610)
+    #expect(WindowRestore.plan(saved: [7: before], current: [7: shrunk], edge: edge) == [7: before])
+  }
+
+  @Test func leavesUnchangedWindowsAlone() {
+    let nudged = before.offsetBy(dx: 1, dy: 1)
+    #expect(WindowRestore.plan(saved: [7: before], current: [7: nudged], edge: edge).isEmpty)
+  }
+
+  @Test func skipsClosedAndRelocatedWindows() {
+    let onMain = CGRect(x: 100, y: 100, width: 1200, height: 680)
+    #expect(WindowRestore.plan(saved: [7: before, 8: before], current: [8: onMain], edge: edge).isEmpty)
+  }
+
+  @Test func skipsSavedFramesThatNoLongerFit() {
+    let tall = CGRect(x: 700, y: 1600, width: 1200, height: 800)
+    let now = CGRect(x: 700, y: 1630, width: 1200, height: 600)
+    #expect(WindowRestore.plan(saved: [7: tall], current: [7: now], edge: edge).isEmpty)
+  }
+}
