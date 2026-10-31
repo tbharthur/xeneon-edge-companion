@@ -47,7 +47,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       self?.reconfigureInputGuards()
     }
     pointerGuard.onStatus = { [weak self] s in self?.model.pointerStatus = s }
-    pointerGuard.dockRelocator.onWillMove = { [weak self] in self?.frameKeeper.dockWillMove() }
     pointerGuard.dockRelocator.onMoved = { [weak self] ok in self?.frameKeeper.dockMoved(toMain: ok) }
 
     store.$settings

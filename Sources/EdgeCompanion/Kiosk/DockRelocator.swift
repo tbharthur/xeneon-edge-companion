@@ -25,9 +25,7 @@ final class DockRelocator {
   private var failures = 0
   private var nextTryAt: TimeInterval = 0
 
-  /// Called on the main thread just before a push, and after it with whether the Dock is now on
-  /// the main display.
-  var onWillMove: (() -> Void)?
+  /// Called on the main thread after a relocation, with whether the Dock is now on the main display.
   var onMoved: ((Bool) -> Void)?
 
   /// Starts (or retargets) the watch that keeps the Dock off `edge`. Main thread.
@@ -121,7 +119,6 @@ final class DockRelocator {
       return
     }
     running = true
-    onWillMove?()
     Log.info(.pointer, "moving the Dock from \(dockDisplay) to the main display via \(trigger): \(reason) (attempt \(attempt))")
     queue.async { [weak self] in
       CursorHider.whileHidden { Self.push(toward: trigger, edge: edge) }

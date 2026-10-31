@@ -4,9 +4,11 @@ import EdgeCore
 
 /// Keeps the Edge's windows at the size they had before the Dock visited.
 ///
-/// While the Dock is elsewhere, it remembers the frame of every window on the Edge. Once the Dock
-/// lands on the Edge (macOS shrinks those windows to clear it) the memory is frozen, and after the
-/// Dock relocator has moved the Dock off again, each window that changed is put back.
+/// macOS parks the Dock on the Edge during most wakes and shrinks the windows there to clear it.
+/// This remembers the Edge's window frames once, as the screens lock or sleep (window positions
+/// stay readable while locked), and after the Dock relocator has moved the Dock off the Edge it
+/// puts back each window that changed. Frames are kept in memory only, and are dropped once a
+/// wake has settled so they can never undo a later change.
 final class WindowFrameKeeper {
   private struct Saved {
     let pid: pid_t
@@ -16,46 +18,46 @@ final class WindowFrameKeeper {
 
   private var edgeBounds: CGRect?
   private var saved: [Int: Saved] = [:]
-  /// Set from the moment the Dock is seen on the Edge (or about to be moved off it) until the
-  /// windows are restored, so shrunken frames never overwrite the good ones.
-  private var frozen = false
-  private var timer: Timer?
+  private var observers: [(NotificationCenter, NSObjectProtocol)] = []
   private var pendingRestore: DispatchWorkItem?
+  private var pendingDiscard: DispatchWorkItem?
   private let ownPID = ProcessInfo.processInfo.processIdentifier
 
   /// Active while the Dock lock is on and the Edge is present. Main thread.
   func configure(edgeBounds: CGRect?, enabled: Bool) {
     guard enabled, let edgeBounds else {
       self.edgeBounds = nil
-      timer?.invalidate()
-      timer = nil
       saved.removeAll()
-      frozen = false
+      observers.forEach { $0.0.removeObserver($0.1) }
+      observers.removeAll()
       return
     }
-    if self.edgeBounds != edgeBounds {
-      saved.removeAll()
-      frozen = false
-    }
+    if self.edgeBounds != edgeBounds { saved.removeAll() }
     self.edgeBounds = edgeBounds
-    guard timer == nil else { return }
-    let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
-    t.tolerance = 0.5
-    RunLoop.main.add(t, forMode: .common)
-    timer = t
-    tick()
+    guard observers.isEmpty else { return }
+    let ws = NSWorkspace.shared.notificationCenter
+    let dnc = DistributedNotificationCenter.default()
+    func on(_ center: NotificationCenter, _ name: Notification.Name, _ action: @escaping (WindowFrameKeeper) -> Void) {
+      observers.append((center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+        if let self { action(self) }
+      }))
+    }
+    // Going down: remember. Lock usually comes first (on display dim), then screen and system sleep.
+    on(dnc, Notification.Name("com.apple.screenIsLocked")) { $0.remember() }
+    on(ws, NSWorkspace.screensDidSleepNotification) { $0.remember() }
+    on(ws, NSWorkspace.willSleepNotification) { $0.remember() }
+    // Coming back: once usable, give the relocator time to move the Dock, then forget.
+    on(dnc, Notification.Name("com.apple.screenIsUnlocked")) { $0.discardLater() }
+    on(ws, NSWorkspace.screensDidWakeNotification) { if !Self.screenLocked { $0.discardLater() } }
   }
 
-  /// The relocator is about to push the Dock off the Edge: stop remembering.
-  func dockWillMove() {
-    frozen = true
-  }
-
-  /// The relocator finished; restore once the Dock's departure has settled.
+  /// The relocator moved the Dock off the Edge; restore once its departure has settled.
   func dockMoved(toMain: Bool) {
-    guard toMain else { return }
+    guard toMain, !saved.isEmpty else { return }
+    let frames = saved
+    saved.removeAll()
     pendingRestore?.cancel()
-    let work = DispatchWorkItem { [weak self] in self?.restore() }
+    let work = DispatchWorkItem { [weak self] in self?.restore(frames) }
     pendingRestore = work
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
   }
@@ -64,38 +66,33 @@ final class WindowFrameKeeper {
     (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
   }
 
-  private func tick() {
-    guard let edge = edgeBounds, !Self.screenLocked else { return }
-    let dock = DockRelocator.currentDockDisplay()
-    if dock?.equalTo(edge) == true {
-      frozen = true
-      return
-    }
-    // The Dock left the Edge some other way (e.g. the user pushed it off): restore now.
-    if frozen {
-      restore()
-      return
-    }
-    // Hidden Dock (nil) is fine to record through: it reserves no space.
+  private func remember() {
+    guard let edge = edgeBounds else { return }
+    pendingDiscard?.cancel()
+    // Already on the Edge: these frames may be the shrunken ones; keep what we had.
+    if DockRelocator.currentDockDisplay()?.equalTo(edge) == true { return }
     saved = Self.windowsOnEdge(edge, ownPID: ownPID)
   }
 
-  private func restore() {
-    pendingRestore?.cancel()
-    pendingRestore = nil
-    defer { frozen = false }
+  private func discardLater() {
+    pendingDiscard?.cancel()
+    let work = DispatchWorkItem { [weak self] in self?.saved.removeAll() }
+    pendingDiscard = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
+  }
+
+  private func restore(_ frames: [Int: Saved]) {
     guard let edge = edgeBounds, !Self.screenLocked else { return }
     let current = Self.windowsOnEdge(edge, ownPID: ownPID)
-    let plan = WindowRestore.plan(saved: saved.mapValues(\.frame), current: current.mapValues(\.frame), edge: edge)
+    let plan = WindowRestore.plan(saved: frames.mapValues(\.frame), current: current.mapValues(\.frame), edge: edge)
     for (id, target) in plan {
-      guard let now = current[id], let before = saved[id] else { continue }
+      guard let now = current[id], let before = frames[id] else { continue }
       if AXWindows.setFrame(pid: before.pid, matching: now.frame, to: target) {
         Log.info(.evictor, "restored a \(before.owner) window to its size before the Dock visited the Edge")
       } else {
         Log.error(.evictor, "could not restore a \(before.owner) window (\(now.frame) → \(target))")
       }
     }
-    saved = Self.windowsOnEdge(edge, ownPID: ownPID)
   }
 
   /// Normal app windows whose centre is on the Edge, by window number.
