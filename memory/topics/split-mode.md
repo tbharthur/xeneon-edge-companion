@@ -12,6 +12,7 @@ Arthur wanted widgets and normal app windows on the Xeneon Edge at the same time
 - macOS still sees the full physical display area. The implementation handles overlapping app windows by moving/resizing them into the open part of the Edge; it does not establish a smaller macOS display boundary.
 - Placement now responds to windows moving, resizing or opening. It waits until the mouse drag ends before snapping a window out from under the dashboard, with a 3-second periodic check as fallback.
 - A lock-screen guard avoids placement errors when macOS hides other apps' windows while locked.
+- macOS parks the Dock on the Edge during most wakes (the Edge reconnects before the LG, and the LG often drops out briefly) and shrinks the Edge's windows to clear it. With "Keep the Dock off the Edge" on, the app checks once a second, moves the Dock right after unlock, retries with backoff, and restores the Edge windows' pre-Dock frames (added 2026-10-30/31; Arthur confirmed the Dock move works).
 - Intended touch behavior is dashboard interaction within the dashboard and ordinary touchscreen behavior in the remaining area; assistant touch testing was unavailable.
 
 ## Evidence and outstanding checks
