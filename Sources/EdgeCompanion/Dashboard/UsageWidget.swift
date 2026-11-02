@@ -75,7 +75,10 @@ private struct ServiceUsage: View {
         status(message)
       case let .ready(snapshot):
         HStack(spacing: wide ? 28 : 16) {
-          BarStat(label: tr("5시간", "5 hours"), window: snapshot.fiveHour?.current(at: now), tint: service.tint, now: now, large: wide)
+          // Plans without a 5-hour limit (Claude Ultra, Codex Pro) report none; weekly takes the row.
+          if snapshot.fiveHour != nil {
+            BarStat(label: tr("5시간", "5 hours"), window: snapshot.fiveHour?.current(at: now), tint: service.tint, now: now, large: wide)
+          }
           BarStat(label: tr("주간", "Weekly"), window: snapshot.weekly?.current(at: now), tint: service.tint, now: now, large: wide)
         }
       }

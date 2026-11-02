@@ -2,8 +2,9 @@ import EdgeCore
 import SwiftUI
 
 /// Every Claude and Codex account from the local usage feed as a grid of tiles. Each tile leads
-/// with the account's tightest window (the one that will stop it first), with the three windows
-/// as bars underneath; blocked accounts turn red with the time they free up.
+/// with the account's tightest window (the one that will stop it first), with its windows as bars
+/// underneath; blocked accounts turn red with the time they free up. An account with no 5-hour
+/// window (Claude Ultra, Codex Pro) gets no 5h bar; its remaining bars widen to fill the row.
 struct QuotaWidget: View {
   @ObservedObject private var service = QuotaFeedService.shared
 
@@ -128,7 +129,7 @@ private struct QuotaTile: View {
         Text(statusText).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(2).minimumScaleFactor(0.7)
       }
       Spacer(minLength: 4)
-      // The three windows as small columns; the tallest is the number above.
+      // The windows as small columns; the tallest is the number above.
       HStack(alignment: .bottom, spacing: 6) {
         ForEach(bars, id: \.0) { label, window in
           let isLead = lead?.label == label
@@ -167,7 +168,9 @@ private struct QuotaTile: View {
   }
 
   private var bars: [(String, QuotaWindowView?)] {
-    var list: [(String, QuotaWindowView?)] = [("5h", account.fiveHour), (tr("주간", "Wk"), account.weekly)]
+    var list: [(String, QuotaWindowView?)] = []
+    if account.fiveHour != nil { list.append(("5h", account.fiveHour)) }
+    list.append((tr("주간", "Wk"), account.weekly))
     if account.provider == .claude { list.append(("Fable", account.fable)) }
     return list
   }
