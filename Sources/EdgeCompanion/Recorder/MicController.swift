@@ -86,7 +86,8 @@ final class MicController: ObservableObject {
         transport: read(id, kAudioDevicePropertyTransportType) ?? 0,
         muteSettable: hasMute,
         muted: muted != 0,
-        isDefault: id == defaultInput
+        isDefault: id == defaultInput,
+        inUse: (read(id, kAudioDevicePropertyDeviceIsRunningSomewhere) as UInt32? ?? 0) != 0
       )
     }
   }

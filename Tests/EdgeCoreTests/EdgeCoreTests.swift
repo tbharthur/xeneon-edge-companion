@@ -453,8 +453,8 @@ import Testing
 }
 
 @Suite struct MicMuteTests {
-  func dev(_ id: UInt32, _ transport: String, muted: Bool = false, settable: Bool = true, isDefault: Bool = false) -> MicDevice {
-    MicDevice(id: id, name: "mic\(id)", transport: MicMute.fourCC(transport), muteSettable: settable, muted: muted, isDefault: isDefault)
+  func dev(_ id: UInt32, _ transport: String, muted: Bool = false, settable: Bool = true, isDefault: Bool = false, inUse: Bool = false) -> MicDevice {
+    MicDevice(id: id, name: "mic\(id)", transport: MicMute.fourCC(transport), muteSettable: settable, muted: muted, isDefault: isDefault, inUse: inUse)
   }
 
   @Test func controlsPhysicalMicsOnly() {
@@ -476,5 +476,11 @@ import Testing
   @Test func namesTheDefaultInput() {
     #expect(MicMute.label([dev(1, "usb "), dev(2, "usb ", isDefault: true)]) == "mic2")
     #expect(MicMute.label([dev(1, "usb "), dev(2, "virt", isDefault: true)]) == "mic1")
+  }
+
+  @Test func namesTheMicAnAppIsUsing() {
+    // Teams on the MV7 while the Poly is the system default.
+    #expect(MicMute.label([dev(1, "usb ", isDefault: true), dev(2, "usb ", inUse: true), dev(3, "virt", inUse: true)]) == "mic2")
+    #expect(MicMute.label([dev(1, "usb ", inUse: true), dev(2, "usb ", inUse: true)]) == "mic1 + mic2")
   }
 }

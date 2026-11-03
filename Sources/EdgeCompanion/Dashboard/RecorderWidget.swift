@@ -2,8 +2,8 @@ import EdgeCore
 import SwiftUI
 
 /// The meeting recorder: record/stop (the same path as the Poly button), the running time while
-/// recording, transcription progress, the Discord hand-off, and how the last call ended. A bar
-/// along the bottom mutes the microphone for every app, recording or not.
+/// recording, transcription progress, the Discord hand-off, and how the last call ended. A second,
+/// equal button mutes the microphone for every app, recording or not.
 struct RecorderWidget: View {
   @ObservedObject private var service = RecorderService.shared
   @ObservedObject private var mic = MicController.shared
@@ -13,9 +13,10 @@ struct RecorderWidget: View {
   var body: some View {
     WidgetCard {
       GeometryReader { geo in
-        // Side by side when there is room; stacked in a narrow card.
-        let wide = geo.size.width >= geo.size.height * 1.15
-        let control = min(wide ? geo.size.height - 46 - Self.micBarHeight - 10 : geo.size.width * 0.62, 150)
+        // Two equal columns: Record/Stop on the left, the mic on the right, each with its words
+        // underneath. The circles grow to whatever the card leaves after the header and captions.
+        let column = (geo.size.width - Self.columnGap) / 2
+        let control = max(70, min(column - 16, geo.size.height - 40 - Self.captionHeight - 12, 160))
         VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 8) {
             Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
@@ -27,21 +28,19 @@ struct RecorderWidget: View {
             }
           }
           .frame(height: 30)
-          Group {
-            if wide {
-              HStack(spacing: 22) {
-                primary(size: control)
-                detail.frame(maxWidth: .infinity, alignment: .leading)
-              }
-            } else {
-              VStack(spacing: 14) {
-                primary(size: control)
-                detail.frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
-              }
+          HStack(alignment: .top, spacing: Self.columnGap) {
+            VStack(spacing: 12) {
+              primary(size: control)
+              detail.frame(maxWidth: .infinity).multilineTextAlignment(.center)
             }
+            .frame(width: column)
+            VStack(spacing: 12) {
+              micButton(size: control)
+              micCaption.frame(maxWidth: .infinity).multilineTextAlignment(.center)
+            }
+            .frame(width: column)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-          micBar
         }
       }
     }
@@ -55,39 +54,41 @@ struct RecorderWidget: View {
     }
   }
 
-  private static let micBarHeight: CGFloat = 56
+  private static let columnGap: CGFloat = 16
+  /// Room kept under each circle for its words.
+  private static let captionHeight: CGFloat = 74
 
   /// Mute/unmute every microphone at the device, so Teams, Zoom, Meet and the rest all go quiet.
-  private var micBar: some View {
+  private func micButton(size: CGFloat) -> some View {
     let muted = mic.muted == true
     let available = mic.muted != nil
     return Button { mic.toggle() } label: {
-      HStack(spacing: 12) {
+      ZStack {
+        Circle().fill(muted ? Theme.warning : Color.white.opacity(available ? 0.16 : 0.06))
+        Circle().strokeBorder(Color.white.opacity(muted ? 0.18 : 0.28), lineWidth: 3)
         Image(systemName: muted ? "mic.slash.fill" : "mic.fill")
-          .font(.system(size: 22, weight: .semibold))
-          .frame(width: 28)
-        Text(!available ? tr("마이크 없음", "No mic") : muted ? tr("음소거됨", "Muted") : tr("마이크 켜짐", "Mic on"))
-          .font(Theme.text(19, weight: .bold))
-        Spacer(minLength: 8)
-        if available {
-          Text(muted ? tr("눌러서 켜기", "Tap to unmute") : (mic.deviceName ?? tr("눌러서 음소거", "Tap to mute")))
-            .font(Theme.text(14, weight: .medium))
-            .opacity(0.75)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-        }
+          .font(.system(size: size * 0.34, weight: .semibold))
+          .foregroundStyle(muted ? Color.black.opacity(0.85) : .white)
       }
-      .foregroundStyle(muted ? Color.black.opacity(0.85) : Theme.textPrimary)
-      .padding(.horizontal, 18)
-      .frame(maxWidth: .infinity)
-      .frame(height: Self.micBarHeight)
-      .background(Capsule().fill(muted ? Theme.warning : Theme.track))
-      .overlay(Capsule().strokeBorder(Color.white.opacity(muted ? 0 : 0.1), lineWidth: 1))
-      .contentShape(Capsule())
+      .frame(width: size, height: size)
+      .contentShape(Circle())
     }
     .buttonStyle(.plain)
     .disabled(!available)
     .opacity(available ? 1 : 0.5)
+  }
+
+  @ViewBuilder private var micCaption: some View {
+    let muted = mic.muted == true
+    VStack(spacing: 6) {
+      Text(mic.muted == nil ? tr("마이크 없음", "No mic") : muted ? tr("음소거됨", "Muted") : tr("마이크 켜짐", "Mic on"))
+        .font(Theme.text(20, weight: .semibold))
+        .foregroundStyle(muted ? Theme.warning : Theme.textPrimary)
+      if let name = mic.deviceName {
+        Text(name).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.textTertiary)
+          .lineLimit(1).minimumScaleFactor(0.75)
+      }
+    }
   }
 
   @ViewBuilder private var stateBadge: some View {
@@ -142,12 +143,12 @@ struct RecorderWidget: View {
     }
   }
 
-  /// Words beside (or under) the control.
+  /// Words under the record control.
   @ViewBuilder private var detail: some View {
     switch service.phase {
     case let .recording(since):
-      VStack(alignment: .leading, spacing: 6) {
-        Text(elapsed(since)).font(Theme.number(46, weight: .bold)).foregroundStyle(Theme.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
+      VStack(spacing: 6) {
+        Text(elapsed(since)).font(Theme.number(34, weight: .bold)).foregroundStyle(Theme.textPrimary).lineLimit(1).minimumScaleFactor(0.6)
         HStack(spacing: 7) {
           Circle().fill(Theme.critical).frame(width: 10, height: 10)
             .opacity(pulse ? 0.3 : 1)
@@ -159,7 +160,7 @@ struct RecorderWidget: View {
         }
       }
     case let .transcribing(_, audioSeconds):
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(spacing: 6) {
         Text(tr("받아쓰는 중", "Transcribing")).font(Theme.text(20, weight: .semibold)).foregroundStyle(Theme.textPrimary)
         if let audioSeconds {
           Text(tr("녹음 \(duration(audioSeconds))", "\(duration(audioSeconds)) call")).font(Theme.text(15, weight: .medium)).foregroundStyle(Theme.textSecondary)
@@ -171,7 +172,7 @@ struct RecorderWidget: View {
     case .sending:
       Text(tr("Discord로 보내는 중…", "Sending to Discord…")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textSecondary)
     case let .idle(last):
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(spacing: 6) {
         Text(tr("녹음 시작", "Record")).font(Theme.text(20, weight: .semibold)).foregroundStyle(Theme.textPrimary)
         if let last {
           lastRun(last)
@@ -208,7 +209,7 @@ struct RecorderWidget: View {
     var parts: [String] = []
     if let ended = last.endedAt { parts.append(clock(ended)) }
     if let secs = last.audioSeconds { parts.append(duration(secs)) }
-    return VStack(alignment: .leading, spacing: 3) {
+    return VStack(spacing: 3) {
       Text(tr("마지막 통화", "Last call") + (parts.isEmpty ? "" : " · " + parts.joined(separator: " · ")))
         .font(Theme.text(13.5, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1).minimumScaleFactor(0.8)
       Label(text, systemImage: symbol).font(Theme.text(15, weight: .semibold)).foregroundStyle(color).lineLimit(2)

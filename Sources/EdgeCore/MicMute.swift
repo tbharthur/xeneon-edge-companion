@@ -9,14 +9,17 @@ public struct MicDevice: Equatable, Sendable {
   public var muteSettable: Bool
   public var muted: Bool
   public var isDefault: Bool
+  /// Some app has the mic open (CoreAudio "running somewhere").
+  public var inUse: Bool
 
-  public init(id: UInt32, name: String, transport: UInt32, muteSettable: Bool, muted: Bool, isDefault: Bool) {
+  public init(id: UInt32, name: String, transport: UInt32, muteSettable: Bool, muted: Bool, isDefault: Bool, inUse: Bool = false) {
     self.id = id
     self.name = name
     self.transport = transport
     self.muteSettable = muteSettable
     self.muted = muted
     self.isDefault = isDefault
+    self.inUse = inUse
   }
 }
 
@@ -48,9 +51,12 @@ public enum MicMute {
     !(isMuted(devices) ?? false)
   }
 
-  /// The mic to name under the button: the default input if it is controlled, else the first.
+  /// The mic to name under the button: the one an app has open (Teams often picks a mic other
+  /// than the system default), else the default input, else the first.
   public static func label(_ devices: [MicDevice]) -> String? {
     let t = targets(devices)
+    let open = t.filter(\.inUse)
+    if !open.isEmpty { return open.map(\.name).joined(separator: " + ") }
     return (t.first(where: \.isDefault) ?? t.first)?.name
   }
 }
