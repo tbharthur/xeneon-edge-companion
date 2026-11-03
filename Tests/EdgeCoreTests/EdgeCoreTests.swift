@@ -451,3 +451,30 @@ import Testing
     #expect(WindowRestore.plan(saved: [7: tall], current: [7: now], edge: edge).isEmpty)
   }
 }
+
+@Suite struct MicMuteTests {
+  func dev(_ id: UInt32, _ transport: String, muted: Bool = false, settable: Bool = true, isDefault: Bool = false) -> MicDevice {
+    MicDevice(id: id, name: "mic\(id)", transport: MicMute.fourCC(transport), muteSettable: settable, muted: muted, isDefault: isDefault)
+  }
+
+  @Test func controlsPhysicalMicsOnly() {
+    let devices = [dev(1, "usb ", isDefault: true), dev(2, "bltn"), dev(3, "virt"), dev(4, "grup"), dev(5, "usb ", settable: false)]
+    #expect(MicMute.targets(devices).map(\.id) == [1, 2])
+  }
+
+  @Test func mutedOnlyWhenEveryMicIsMuted() {
+    #expect(MicMute.isMuted([dev(1, "usb ", muted: true), dev(2, "usb ", muted: true), dev(3, "virt")]) == true)
+    #expect(MicMute.isMuted([dev(1, "usb ", muted: true), dev(2, "usb ")]) == false)
+    #expect(MicMute.isMuted([dev(3, "virt")]) == nil)
+  }
+
+  @Test func tapMutesUnlessAllMuted() {
+    #expect(MicMute.nextMuted([dev(1, "usb ", muted: true), dev(2, "usb ")]) == true)
+    #expect(MicMute.nextMuted([dev(1, "usb ", muted: true), dev(2, "usb ", muted: true)]) == false)
+  }
+
+  @Test func namesTheDefaultInput() {
+    #expect(MicMute.label([dev(1, "usb "), dev(2, "usb ", isDefault: true)]) == "mic2")
+    #expect(MicMute.label([dev(1, "usb "), dev(2, "virt", isDefault: true)]) == "mic1")
+  }
+}

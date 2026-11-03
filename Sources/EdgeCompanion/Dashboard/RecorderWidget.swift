@@ -2,9 +2,11 @@ import EdgeCore
 import SwiftUI
 
 /// The meeting recorder: record/stop (the same path as the Poly button), the running time while
-/// recording, transcription progress, the Discord hand-off, and how the last call ended.
+/// recording, transcription progress, the Discord hand-off, and how the last call ended. A bar
+/// along the bottom mutes the microphone for every app, recording or not.
 struct RecorderWidget: View {
   @ObservedObject private var service = RecorderService.shared
+  @ObservedObject private var mic = MicController.shared
   @State private var confirmStop = false
   @State private var pulse = false
 
@@ -13,7 +15,7 @@ struct RecorderWidget: View {
       GeometryReader { geo in
         // Side by side when there is room; stacked in a narrow card.
         let wide = geo.size.width >= geo.size.height * 1.15
-        let control = min(wide ? geo.size.height - 46 : geo.size.width * 0.62, 150)
+        let control = min(wide ? geo.size.height - 46 - Self.micBarHeight - 10 : geo.size.width * 0.62, 150)
         VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 8) {
             Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
@@ -39,11 +41,53 @@ struct RecorderWidget: View {
             }
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
+          micBar
         }
       }
     }
-    .onAppear { service.retain() }
-    .onDisappear { service.release() }
+    .onAppear {
+      service.retain()
+      mic.retain()
+    }
+    .onDisappear {
+      service.release()
+      mic.release()
+    }
+  }
+
+  private static let micBarHeight: CGFloat = 56
+
+  /// Mute/unmute every microphone at the device, so Teams, Zoom, Meet and the rest all go quiet.
+  private var micBar: some View {
+    let muted = mic.muted == true
+    let available = mic.muted != nil
+    return Button { mic.toggle() } label: {
+      HStack(spacing: 12) {
+        Image(systemName: muted ? "mic.slash.fill" : "mic.fill")
+          .font(.system(size: 22, weight: .semibold))
+          .frame(width: 28)
+        Text(!available ? tr("마이크 없음", "No mic") : muted ? tr("음소거됨", "Muted") : tr("마이크 켜짐", "Mic on"))
+          .font(Theme.text(19, weight: .bold))
+        Spacer(minLength: 8)
+        if available {
+          Text(muted ? tr("눌러서 켜기", "Tap to unmute") : (mic.deviceName ?? tr("눌러서 음소거", "Tap to mute")))
+            .font(Theme.text(14, weight: .medium))
+            .opacity(0.75)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+        }
+      }
+      .foregroundStyle(muted ? Color.black.opacity(0.85) : Theme.textPrimary)
+      .padding(.horizontal, 18)
+      .frame(maxWidth: .infinity)
+      .frame(height: Self.micBarHeight)
+      .background(Capsule().fill(muted ? Theme.warning : Theme.track))
+      .overlay(Capsule().strokeBorder(Color.white.opacity(muted ? 0 : 0.1), lineWidth: 1))
+      .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .disabled(!available)
+    .opacity(available ? 1 : 0.5)
   }
 
   @ViewBuilder private var stateBadge: some View {
