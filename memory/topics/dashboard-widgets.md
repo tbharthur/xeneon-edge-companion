@@ -15,6 +15,7 @@ Arthur found the first UI too small and the recorder too empty. The redesign use
 - Reads the same local quota feed and usable/blocked rules as Devboard, covering eight accounts: six Claude, then two Codex. This is broader than the app's original Claude Code/Codex usage widget.
 - Shows 5-hour, weekly and Fable-weekly usage/reset information, plan and active-account indication. Usage thresholds are amber at 75% and red at 90%.
 - The redesigned account tiles emphasize whichever usage limit is closest to exhaustion, with three small bars underneath. Blocked tiles turn red; Fable-blocked tiles turn amber. Both show the release time; the header counts ready/blocked accounts. A reset-time formatting fix preserves minutes for dates beyond today.
+- Tiers (2026-11-03, Arthur): Claude Ultra plans (feed `plan` containing "Ultra"; currently gmail and arthur) are the top tier. They sort first among Claude accounts even when blocked and sit in a left column of larger tiles with a plan tag, a big number and labeled horizontal bars with percentages. The Team 5x seats, cascade and the Codex accounts form the second tier in a 3×2 grid of smaller tiles on the right. With only one tier present the original grid is used.
 - Polls every minute while visible. If the feed fails, keeps the last values greyed out with a feed-status indication.
 - Classification tests passed and small/large/wide layouts were rendered and refined. The redesigned preview used sample data with blocked-account examples while the Edge was asleep.
 

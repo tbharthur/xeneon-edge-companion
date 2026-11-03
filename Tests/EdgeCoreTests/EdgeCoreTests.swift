@@ -366,6 +366,20 @@ import Testing
     ].joined(separator: ","))
     #expect(QuotaModel.accounts(from: f, feedReachable: true, now: now).map(\.id) == ["idle", "busy", "codex1"])
   }
+
+  @Test func ultraPlansComeFirstEvenWhenBlocked() {
+    func planned(_ id: String, _ plan: String, _ windows: String) -> String {
+      #"{"id":"\#(id)","provider":"claude","label":"\#(id)","plan":"\#(plan)","state":"ok","measuredAt":"2026-10-27T03:50:00Z","windows":[\#(windows)]}"#
+    }
+    let f = feed([
+      planned("seat", "Team 5x", #"{"key":"five_hour","usedPct":0},{"key":"weekly_fable","usedPct":5}"#),
+      planned("full", "Ultra", #"{"key":"weekly","usedPct":100,"resetsAt":"2026-10-30T20:00:00Z"}"#),
+      planned("open", "Ultra", #"{"key":"weekly","usedPct":40},{"key":"weekly_fable","usedPct":30}"#),
+    ].joined(separator: ","))
+    let views = QuotaModel.accounts(from: f, feedReachable: true, now: now)
+    #expect(views.map(\.id) == ["open", "full", "seat"])
+    #expect(views.map(\.premium) == [true, true, false])
+  }
 }
 
 @Suite struct RecorderModelTests {

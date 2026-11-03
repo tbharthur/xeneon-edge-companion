@@ -68,6 +68,9 @@ public struct QuotaAccountView: Equatable, Sendable, Identifiable {
   public var fableBlocked: Bool
   public var fableFreeAt: Date?
 
+  /// A top-tier plan (Claude Ultra): listed first and drawn larger than the rest.
+  public var premium: Bool { plan?.range(of: "ultra", options: .caseInsensitive) != nil }
+
   /// The fullest window, for ordering usable accounts by headroom.
   var headroomScore: Double {
     [fiveHour, weekly, fable].compactMap { $0?.usedPct }.max() ?? 0
@@ -90,8 +93,8 @@ public enum QuotaModel {
     return fractional.date(from: s)
   }
 
-  /// Accounts in display order: Claude then Codex; within each, usable (most headroom and Fable
-  /// first), then blocked (soonest free first), then unknown.
+  /// Accounts in display order: Claude then Codex; within each, top-tier plans first, then usable
+  /// (most headroom and Fable first), then blocked (soonest free first), then unknown.
   public static func accounts(from feed: QuotaFeed, feedReachable: Bool, now: Date) -> [QuotaAccountView] {
     let staleAfter = (feed.refreshIntervalSeconds ?? 900) * staleIntervals
     return feed.accounts.map { view($0, feedReachable: feedReachable, staleAfter: staleAfter, now: now) }.sorted(by: order)
@@ -148,6 +151,7 @@ public enum QuotaModel {
 
   static func order(_ a: QuotaAccountView, _ b: QuotaAccountView) -> Bool {
     if a.provider != b.provider { return a.provider.rawValue < b.provider.rawValue }
+    if a.premium != b.premium { return a.premium }
     if a.group != b.group { return a.group.rawValue < b.group.rawValue }
     if a.group == .usable {
       if a.fableUsable != b.fableUsable { return a.fableUsable }
