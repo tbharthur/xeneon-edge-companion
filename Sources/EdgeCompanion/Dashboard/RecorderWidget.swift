@@ -53,32 +53,96 @@ struct RecorderWidget: View {
     }
   }
 
-  /// A tall, narrow card: Record/Stop above the mic, each with its words underneath, the two
-  /// halves splitting the height below the header.
+  /// A tall, narrow card: Record/Stop and the mic each in their own panel, stacked, with the
+  /// last call in a strip underneath while idle.
   private func stacked(_ size: CGSize) -> some View {
-    let headerHeight: CGFloat = 58
-    let half = (size.height - headerHeight - 10) / 2
-    let control = max(64, min(size.width - 12, half - Self.stackedCaptionHeight - 12, 170))
-    return VStack(spacing: 10) {
-      VStack(spacing: 6) {
-        Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
-          .lineLimit(1).minimumScaleFactor(0.7)
-        statusPill
+    VStack(spacing: 8) {
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 6) {
+          title
+          Spacer(minLength: 2)
+          statusPill
+        }
+        VStack(alignment: .leading, spacing: 6) {
+          title
+          statusPill
+        }
       }
-      .frame(maxWidth: .infinity)
-      .frame(height: headerHeight - 10, alignment: .top)
-      VStack(spacing: 12) {
-        primary(size: control)
-        detail.multilineTextAlignment(.center)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      panel(fill: recordFill) { circle in
+        VStack(spacing: 10) {
+          primary(size: circle)
+          stackedDetail.multilineTextAlignment(.center)
+        }
       }
-      .frame(maxWidth: .infinity, maxHeight: half, alignment: .top)
-      VStack(spacing: 12) {
-        micButton(size: control)
-        micCaption.multilineTextAlignment(.center)
+      panel(fill: mic.muted == true ? Theme.warning.opacity(0.14) : Self.panelFill) { circle in
+        VStack(spacing: 10) {
+          micButton(size: circle)
+          micCaption.multilineTextAlignment(.center)
+        }
       }
-      .frame(maxWidth: .infinity, maxHeight: half, alignment: .top)
+      if case let .idle(last?) = service.phase {
+        lastCallStrip(last)
+      }
     }
     .frame(width: size.width, height: size.height, alignment: .top)
+  }
+
+  private var title: some View {
+    Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+      .lineLimit(1).minimumScaleFactor(0.7)
+  }
+
+  private static let panelFill = Color.white.opacity(0.04)
+  /// Room under each circle in a panel for its words.
+  private static let panelCaptionHeight: CGFloat = 62
+
+  private var recordFill: Color {
+    switch service.phase {
+    case .recording: Theme.critical.opacity(0.13)
+    case .transcribing, .sending: Theme.netIn.opacity(0.10)
+    default: Self.panelFill
+    }
+  }
+
+  /// A rounded panel whose circle grows to what the panel leaves after its words.
+  private func panel<Content: View>(fill: Color, @ViewBuilder content: @escaping (CGFloat) -> Content) -> some View {
+    GeometryReader { g in
+      let circle = max(60, min(g.size.width - 36, g.size.height - Self.panelCaptionHeight - 30, 150))
+      content(circle)
+        .frame(width: g.size.width, height: g.size.height)
+    }
+    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(fill))
+    .animation(.easeInOut(duration: 0.25), value: fill)
+  }
+
+  /// Words under the record control in the stacked layout; the last call has its own strip.
+  @ViewBuilder private var stackedDetail: some View {
+    if case .idle = service.phase {
+      Text(tr("녹음 시작", "Record")).font(Theme.text(20, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+    } else {
+      detail
+    }
+  }
+
+  private func lastCallStrip(_ last: RecorderLastRun) -> some View {
+    let outcome = Self.outcome(last.outcome)
+    var parts: [String] = []
+    if let ended = last.endedAt { parts.append(clock(ended)) }
+    if let secs = last.audioSeconds { parts.append(duration(secs)) }
+    return VStack(alignment: .leading, spacing: 4) {
+      Text(tr("마지막 통화", "Last call").uppercased()).font(Theme.text(10.5, weight: .bold)).tracking(0.8)
+        .foregroundStyle(Theme.textTertiary)
+      if !parts.isEmpty {
+        Text(parts.joined(separator: " · ")).font(Theme.text(14, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+          .lineLimit(1).minimumScaleFactor(0.8)
+      }
+      Label(outcome.text, systemImage: outcome.symbol).font(Theme.text(13, weight: .semibold)).foregroundStyle(outcome.color)
+        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(.horizontal, 12).padding(.vertical, 10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Self.panelFill))
   }
 
   private var header: some View {
@@ -244,14 +308,7 @@ struct RecorderWidget: View {
   }
 
   private func lastRun(_ last: RecorderLastRun) -> some View {
-    let (text, symbol, color): (String, String, Color) = switch last.outcome {
-    case .sent: (tr("Discord로 보냄", "Sent to Discord"), "checkmark.circle.fill", Theme.battery)
-    case .undelivered: (tr("받아쓰기만 저장됨", "Saved, not sent"), "exclamationmark.triangle.fill", Theme.warning)
-    case .empty: (tr("소리가 녹음되지 않음", "No audio captured"), "exclamationmark.triangle.fill", Theme.warning)
-    case .failed: (tr("녹음 실패", "Recording failed"), "xmark.octagon.fill", Theme.critical)
-    case .startFailed: (tr("시작 실패", "Didn't start"), "xmark.octagon.fill", Theme.critical)
-    case let .other(s): (s, "questionmark.circle", Theme.textTertiary)
-    }
+    let (text, symbol, color) = Self.outcome(last.outcome)
     var parts: [String] = []
     if let ended = last.endedAt { parts.append(clock(ended)) }
     if let secs = last.audioSeconds { parts.append(duration(secs)) }
@@ -266,6 +323,17 @@ struct RecorderWidget: View {
       }
       .font(Theme.text(13.5, weight: .medium)).foregroundStyle(Theme.textTertiary)
       Label(text, systemImage: symbol).font(Theme.text(15, weight: .semibold)).foregroundStyle(color).lineLimit(2)
+    }
+  }
+
+  static func outcome(_ outcome: RecorderLastRun.Outcome) -> (text: String, symbol: String, color: Color) {
+    switch outcome {
+    case .sent: (tr("Discord로 보냄", "Sent to Discord"), "checkmark.circle.fill", Theme.battery)
+    case .undelivered: (tr("받아쓰기만 저장됨", "Saved, not sent"), "exclamationmark.triangle.fill", Theme.warning)
+    case .empty: (tr("소리가 녹음되지 않음", "No audio captured"), "exclamationmark.triangle.fill", Theme.warning)
+    case .failed: (tr("녹음 실패", "Recording failed"), "xmark.octagon.fill", Theme.critical)
+    case .startFailed: (tr("시작 실패", "Didn't start"), "xmark.octagon.fill", Theme.critical)
+    case let .other(s): (s, "questionmark.circle", Theme.textTertiary)
     }
   }
 

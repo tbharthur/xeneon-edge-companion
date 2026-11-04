@@ -380,6 +380,21 @@ import Testing
     #expect(views.map(\.id) == ["open", "full", "seat"])
     #expect(views.map(\.premium) == [true, true, false])
   }
+
+  @Test func bucketsUltraThenTeamThenCodex() {
+    func planned(_ id: String, _ provider: String, _ plan: String) -> String {
+      #"{"id":"\#(id)","provider":"\#(provider)","label":"\#(id)","plan":"\#(plan)","state":"ok","measuredAt":"2026-10-27T03:50:00Z","windows":[{"key":"weekly","usedPct":10}]}"#
+    }
+    let f = feed([
+      planned("cx", "codex", "Pro"),
+      planned("seat", "claude", "Team 5x"),
+      planned("ultra", "claude", "Ultra"),
+    ].joined(separator: ","))
+    let groups = QuotaBucket.group(QuotaModel.accounts(from: f, feedReachable: true, now: now))
+    #expect(groups.map(\.bucket) == [.ultra, .team, .codex])
+    #expect(groups.map { $0.accounts.map(\.id) } == [["ultra"], ["seat"], ["cx"]])
+    #expect(QuotaBucket.group([]).isEmpty)
+  }
 }
 
 @Suite struct RecorderModelTests {

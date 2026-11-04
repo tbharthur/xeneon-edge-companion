@@ -1,39 +1,49 @@
 import EdgeCore
 import SwiftUI
 
-/// Every Claude and Codex account from the local usage feed as a grid of tiles. Each tile leads
-/// with the account's tightest window (the one that will stop it first), with its windows as bars
-/// underneath; blocked accounts turn red with the time they free up. An account with no 5-hour
-/// window (Claude Ultra, Codex Pro) gets no 5h bar; its remaining bars widen to fill the row.
-/// Top-tier plans (Claude Ultra) sit in a column of larger tiles on the left, ahead of the rest.
+/// Every Claude and Codex account from the local usage feed, in three groups: Claude Ultra plans
+/// as full-width rows, then the Team seats and the Codex accounts as grids of tiles. Each account
+/// leads with its tightest window (the one that will stop it first), with its windows as bars;
+/// blocked accounts turn red with the time they free up. An account with no 5-hour window (Claude
+/// Ultra, Codex Pro) gets no 5h bar.
 struct QuotaWidget: View {
   @ObservedObject private var service = QuotaFeedService.shared
 
   var body: some View {
     WidgetCard {
       GeometryReader { geo in
-        let accounts = service.accounts
         let headerH: CGFloat = 30
         let gap: CGFloat = 8
-        let grid = Self.grid(count: accounts.count, in: CGSize(width: geo.size.width, height: geo.size.height - headerH - gap), gap: gap)
-        VStack(alignment: .leading, spacing: gap) {
+        let groups = QuotaBucket.group(service.accounts)
+        let plan = Self.plan(groups, in: CGSize(width: geo.size.width, height: geo.size.height - headerH - Self.sectionGap))
+        VStack(alignment: .leading, spacing: Self.sectionGap) {
           header.frame(height: headerH)
-          if accounts.isEmpty {
+          if groups.isEmpty {
             Text(emptyText).font(Theme.text(16, weight: .medium)).foregroundStyle(Theme.textTertiary)
               .frame(maxWidth: .infinity, maxHeight: .infinity)
-          } else if let split = Self.split(accounts, in: CGSize(width: geo.size.width, height: geo.size.height - headerH - gap), gap: gap) {
-            // Top-tier plans in a column of larger tiles on the left; everything else in a grid.
-            HStack(alignment: .top, spacing: gap) {
-              VStack(spacing: gap) {
-                ForEach(split.premium) { account in
-                  QuotaTile(account: account, now: service.now, prominent: true)
-                    .frame(width: split.premiumTile.width, height: split.premiumTile.height)
+          } else {
+            ForEach(groups, id: \.bucket) { group in
+              VStack(alignment: .leading, spacing: Self.labelGap) {
+                sectionLabel(group.bucket, group.accounts)
+                if group.bucket == .ultra {
+                  VStack(spacing: gap) {
+                    ForEach(group.accounts) { account in
+                      QuotaTile(account: account, now: service.now, style: .row)
+                        .frame(width: geo.size.width, height: plan.rowHeight)
+                    }
+                  }
+                } else {
+                  let columns = Self.columns(group.accounts.count, width: geo.size.width, gap: gap)
+                  let tileW = floor((geo.size.width - gap * CGFloat(columns - 1)) / CGFloat(columns))
+                  LazyVGrid(columns: Array(repeating: GridItem(.fixed(tileW), spacing: gap), count: columns), alignment: .leading, spacing: gap) {
+                    ForEach(group.accounts) { account in
+                      QuotaTile(account: account, now: service.now, style: .tile)
+                        .frame(width: tileW, height: plan.tileHeight)
+                    }
+                  }
                 }
               }
-              tiles(split.rest, grid: split.grid, gap: gap)
             }
-          } else {
-            tiles(accounts, grid: grid, gap: gap)
           }
           Spacer(minLength: 0)
         }
@@ -43,64 +53,63 @@ struct QuotaWidget: View {
     .onDisappear { service.release() }
   }
 
-  private func tiles(_ accounts: [QuotaAccountView], grid: (columns: Int, tile: CGSize), gap: CGFloat) -> some View {
-    LazyVGrid(columns: Array(repeating: GridItem(.fixed(grid.tile.width), spacing: gap), count: grid.columns), alignment: .leading, spacing: gap) {
-      ForEach(accounts) { account in
-        QuotaTile(account: account, now: service.now)
-          .frame(width: grid.tile.width, height: grid.tile.height)
+  private static let sectionGap: CGFloat = 12
+  private static let labelGap: CGFloat = 6
+  private static let labelHeight: CGFloat = 15
+
+  /// Tiles per row in a grid group: as many as fit at a comfortable width, never more than it has.
+  static func columns(_ count: Int, width: CGFloat, gap: CGFloat) -> Int {
+    max(1, min(count, Int((width + gap) / (104 + gap))))
+  }
+
+  /// Shares the height between the groups: an Ultra row counts as 0.62 of a tile row.
+  static func plan(_ groups: [(bucket: QuotaBucket, accounts: [QuotaAccountView])], in size: CGSize, gap: CGFloat = 8)
+    -> (rowHeight: CGFloat, tileHeight: CGFloat) {
+    var weight: CGFloat = 0
+    var fixed: CGFloat = 0
+    for (index, group) in groups.enumerated() {
+      let lines = group.bucket == .ultra
+        ? group.accounts.count
+        : Int(ceil(Double(group.accounts.count) / Double(columns(group.accounts.count, width: size.width, gap: gap))))
+      weight += CGFloat(lines) * (group.bucket == .ultra ? 0.62 : 1)
+      fixed += labelHeight + labelGap + gap * CGFloat(max(lines - 1, 0)) + (index > 0 ? sectionGap : 0)
+    }
+    guard weight > 0 else { return (70, 120) }
+    let unit = max((size.height - fixed) / weight, 60)
+    return (floor(min(unit * 0.62, 88)), floor(min(unit, 150)))
+  }
+
+  private func sectionLabel(_ bucket: QuotaBucket, _ accounts: [QuotaAccountView]) -> some View {
+    let ready = accounts.filter { $0.group == .usable }.count
+    let blocked = accounts.filter { $0.group == .blocked }.count
+    let title: String = switch bucket {
+    case .ultra: "Claude Ultra"
+    case .team: accounts.allSatisfy { $0.plan?.localizedCaseInsensitiveContains("team") == true } ? "Claude Team" : "Claude"
+    case .codex: "Codex"
+    }
+    let tint = bucket == .codex ? AIService.codex.tint : AIService.claude.tint
+    return HStack(spacing: 6) {
+      RoundedRectangle(cornerRadius: 1.5).fill(tint).frame(width: 10, height: 3)
+      Text(title.uppercased()).font(Theme.text(11.5, weight: .bold)).tracking(0.8).foregroundStyle(Theme.textSecondary)
+        .lineLimit(1)
+      Spacer(minLength: 4)
+      if blocked > 0 {
+        Text(tr("\(blocked) 막힘", "\(blocked) blocked")).font(Theme.text(11.5, weight: .semibold)).foregroundStyle(Theme.critical)
       }
+      Text(tr("\(ready)/\(accounts.count) 사용 가능", "\(ready)/\(accounts.count) ready")).font(Theme.text(11.5, weight: .semibold))
+        .foregroundStyle(ready > 0 ? Theme.battery : Theme.textTertiary)
     }
-  }
-
-  /// With both tiers present: the premium column's tile size and the grid for the rest. Nil when
-  /// every account is the same tier, or the card is too small to split.
-  static func split(_ accounts: [QuotaAccountView], in size: CGSize, gap: CGFloat)
-    -> (premium: [QuotaAccountView], rest: [QuotaAccountView], premiumTile: CGSize, grid: (columns: Int, tile: CGSize))? {
-    let premium = accounts.filter(\.premium)
-    let rest = accounts.filter { !$0.premium }
-    guard !premium.isEmpty, !rest.isEmpty else { return nil }
-    let leftW = floor(size.width * 0.35)
-    let tileH = floor((size.height - gap * CGFloat(premium.count - 1)) / CGFloat(premium.count))
-    guard leftW >= 130, tileH >= 90 else { return nil }
-    let g = grid(count: rest.count, in: CGSize(width: size.width - leftW - gap, height: size.height), gap: gap, minWidth: 76)
-    return (premium, rest, CGSize(width: leftW, height: tileH), g)
-  }
-
-  /// The column count whose tiles come closest to a comfortable shape, filling the card.
-  static func grid(count: Int, in size: CGSize, gap: CGFloat, minWidth: CGFloat = 88) -> (columns: Int, tile: CGSize) {
-    guard count > 0, size.width > 0, size.height > 0 else { return (1, .zero) }
-    var best: (columns: Int, tile: CGSize, score: CGFloat) = (1, .zero, .infinity)
-    for columns in 1 ... count {
-      let rows = Int(ceil(Double(count) / Double(columns)))
-      let w = (size.width - gap * CGFloat(columns - 1)) / CGFloat(columns)
-      let h = min((size.height - gap * CGFloat(rows - 1)) / CGFloat(rows), 190)
-      guard w >= minWidth, h >= 96 else { continue }
-      // Prefer tiles a little taller than wide, and fewer empty cells.
-      let shape = abs(log(h / w) - log(1.25))
-      let empty = CGFloat(rows * columns - count) * 0.15
-      if shape + empty < best.score { best = (columns, CGSize(width: floor(w), height: floor(h)), shape + empty) }
-    }
-    if best.tile == .zero {
-      // Too many for comfortable tiles: squeeze into the widest grid that fits.
-      let columns = max(1, Int((size.width + gap) / (minWidth + gap)))
-      let rows = Int(ceil(Double(count) / Double(columns)))
-      return (columns, CGSize(width: floor((size.width - gap * CGFloat(columns - 1)) / CGFloat(columns)),
-                              height: floor((size.height - gap * CGFloat(rows - 1)) / CGFloat(rows))))
-    }
-    return (best.columns, best.tile)
+    .lineLimit(1)
+    .frame(height: Self.labelHeight)
   }
 
   private var header: some View {
-    let usable = service.accounts.filter { $0.group == .usable }.count
-    let blocked = service.accounts.filter { $0.group == .blocked }.count
-    return HStack(spacing: 8) {
+    HStack(spacing: 8) {
       Text(tr("AI 계정", "AI accounts")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+        .lineLimit(1)
       Spacer(minLength: 4)
       if case .unreachable = service.status {
         Pill(text: tr("피드 연결 안 됨", "Feed offline"), color: Theme.warning)
-      } else if !service.accounts.isEmpty {
-        Pill(text: tr("\(usable)개 사용 가능", "\(usable) ready"), color: Theme.battery)
-        if blocked > 0 { Pill(text: tr("\(blocked)개 막힘", "\(blocked) blocked"), color: Theme.critical) }
       }
     }
   }
@@ -128,57 +137,52 @@ struct Pill: View {
 private struct QuotaTile: View {
   let account: QuotaAccountView
   let now: Date
-  /// Top-tier plan: larger type, a plan tag, and labeled bars with their percentages.
-  var prominent = false
+  enum Style { case row, tile }
+  /// `.row`: a full-width line with the number on the left and labeled bars on the right.
+  var style: Style = .tile
 
   private var tint: Color { account.provider == .claude ? AIService.claude.tint : AIService.codex.tint }
   private var trusted: Bool { account.condition == .confirmed }
 
   var body: some View {
-    if prominent { prominentBody } else { compactBody }
+    if style == .row { rowBody } else { compactBody }
   }
 
-  private var prominentBody: some View {
+  private var rowBody: some View {
     let lead = leadWindow
-    return VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: 7) {
-        Circle().fill(tint).frame(width: 8, height: 8)
-        Text(account.label).font(Theme.text(17, weight: .bold)).foregroundStyle(Theme.textPrimary)
-          .lineLimit(1).minimumScaleFactor(0.75)
-        if let plan = account.plan {
-          Text(plan).font(Theme.text(11, weight: .bold)).foregroundStyle(tint)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(tint.opacity(0.16)))
-            .lineLimit(1).fixedSize()
+    return HStack(alignment: .center, spacing: 12) {
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 6) {
+          Circle().fill(tint).frame(width: 7, height: 7)
+          Text(account.label).font(Theme.text(15, weight: .bold)).foregroundStyle(Theme.textPrimary)
+            .lineLimit(1).minimumScaleFactor(0.6).allowsTightening(true)
+          if account.active {
+            Image(systemName: "bolt.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(tint)
+          }
         }
-        Spacer(minLength: 0)
-        if account.active {
-          Image(systemName: "bolt.fill").font(.system(size: 12, weight: .bold)).foregroundStyle(tint)
+        if let blocked = blockedText {
+          Text(blocked.title).font(Theme.text(17, weight: .bold)).foregroundStyle(blocked.color).lineLimit(1).minimumScaleFactor(0.7)
+          Text(blocked.until).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.textSecondary).lineLimit(1).minimumScaleFactor(0.7)
+        } else if trusted {
+          HStack(alignment: .firstTextBaseline, spacing: 1) {
+            Text(lead.map { "\(Int(($0.window.usedPct ?? 0).rounded()))" } ?? "0")
+              .font(Theme.number(28, weight: .bold))
+            Text("%").font(Theme.number(14, weight: .semibold)).opacity(0.7)
+          }
+          .foregroundStyle(QuotaTile.level(lead?.window.usedPct, tint))
+        } else {
+          Text(statusText).font(Theme.text(12.5, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(2).minimumScaleFactor(0.7)
         }
       }
-      Spacer(minLength: 2)
-      if let blocked = blockedText {
-        Text(blocked.title).font(Theme.text(19, weight: .bold)).foregroundStyle(blocked.color).lineLimit(1).minimumScaleFactor(0.7)
-        Text(blocked.until).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.textSecondary).lineLimit(1).minimumScaleFactor(0.7)
-      } else if trusted {
-        HStack(alignment: .firstTextBaseline, spacing: 1) {
-          Text(lead.map { "\(Int(($0.window.usedPct ?? 0).rounded()))" } ?? "0")
-            .font(Theme.number(34, weight: .bold))
-          Text("%").font(Theme.number(16, weight: .semibold)).opacity(0.7)
-        }
-        .foregroundStyle(QuotaTile.level(lead?.window.usedPct, tint))
-      } else {
-        Text(statusText).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(2).minimumScaleFactor(0.7)
-      }
-      Spacer(minLength: 4)
-      // One labeled row per window, with its percentage.
-      VStack(spacing: 5) {
+      .frame(width: 104, alignment: .leading)
+      // One labeled bar per window, with its percentage.
+      VStack(spacing: 7) {
         ForEach(bars, id: \.0) { label, window in
           let isLead = lead?.label == label
           HStack(spacing: 6) {
-            Text(label).font(Theme.text(11.5, weight: isLead ? .bold : .medium))
+            Text(label).font(Theme.text(11, weight: isLead ? .bold : .medium))
               .foregroundStyle(isLead ? Theme.textSecondary : Theme.textTertiary)
-              .frame(width: 34, alignment: .leading)
+              .frame(width: 32, alignment: .leading)
             GeometryReader { g in
               ZStack(alignment: .leading) {
                 Capsule().fill(Theme.track)
@@ -188,18 +192,21 @@ private struct QuotaTile: View {
                   .opacity(window?.usedPct ?? 0 > 0.5 ? 1 : 0)
               }
             }
-            .frame(height: 7)
+            .frame(height: 6)
             Text(window?.usedPct.map { "\(Int($0.rounded()))%" } ?? "–")
-              .font(Theme.number(11.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+              .font(Theme.number(11, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+              .lineLimit(1).fixedSize()
               .frame(width: 34, alignment: .trailing)
           }
           .opacity(window == nil ? 0.4 : 1)
         }
       }
+      .frame(maxWidth: .infinity)
     }
-    .padding(12)
-    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(prominentBackground))
-    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(tint.opacity(account.active ? 0.7 : 0.35), lineWidth: account.active ? 1.5 : 1))
+    .padding(.horizontal, 12).padding(.vertical, 8)
+    .frame(maxHeight: .infinity)
+    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(prominentBackground))
+    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(account.active ? 0.7 : 0.3), lineWidth: account.active ? 1.5 : 1))
   }
 
   private var prominentBackground: Color {

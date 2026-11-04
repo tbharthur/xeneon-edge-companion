@@ -79,6 +79,25 @@ public struct QuotaAccountView: Equatable, Sendable, Identifiable {
   var fableUsable: Bool { group == .usable && provider == .claude && !fableBlocked && fable != nil }
 }
 
+/// The dashboard's account groups, in display order: Claude Ultra plans, the other Claude plans
+/// (the Team seats), then Codex.
+public enum QuotaBucket: Int, CaseIterable, Sendable {
+  case ultra, team, codex
+
+  public static func of(_ account: QuotaAccountView) -> QuotaBucket {
+    if account.provider == .codex { return .codex }
+    return account.premium ? .ultra : .team
+  }
+
+  /// Non-empty buckets in order, each keeping the accounts' existing order.
+  public static func group(_ accounts: [QuotaAccountView]) -> [(bucket: QuotaBucket, accounts: [QuotaAccountView])] {
+    allCases.compactMap { bucket in
+      let members = accounts.filter { of($0) == bucket }
+      return members.isEmpty ? nil : (bucket, members)
+    }
+  }
+}
+
 public enum QuotaModel {
   public static let exhaustedPct = 99.5
   /// A reading older than this many refresh intervals is shown but not trusted.
