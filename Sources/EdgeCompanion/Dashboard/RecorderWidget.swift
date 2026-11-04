@@ -13,34 +13,10 @@ struct RecorderWidget: View {
   var body: some View {
     WidgetCard {
       GeometryReader { geo in
-        // Two equal columns: Record/Stop on the left, the mic on the right, each with its words
-        // underneath. The circles grow to whatever the card leaves after the header and captions.
-        let column = (geo.size.width - Self.columnGap) / 2
-        let control = max(70, min(column - 16, geo.size.height - 40 - Self.captionHeight - 12, 160))
-        VStack(alignment: .leading, spacing: 10) {
-          HStack(spacing: 8) {
-            Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
-            Spacer(minLength: 4)
-            if let error = service.error {
-              Pill(text: error, color: Theme.warning).lineLimit(1)
-            } else {
-              stateBadge
-            }
-          }
-          .frame(height: 30)
-          HStack(alignment: .top, spacing: Self.columnGap) {
-            VStack(spacing: 12) {
-              primary(size: control)
-              detail.frame(maxWidth: .infinity).multilineTextAlignment(.center)
-            }
-            .frame(width: column)
-            VStack(spacing: 12) {
-              micButton(size: control)
-              micCaption.frame(maxWidth: .infinity).multilineTextAlignment(.center)
-            }
-            .frame(width: column)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if geo.size.height > geo.size.width * 1.25 {
+          stacked(geo.size)
+        } else {
+          sideBySide(geo.size)
         }
       }
     }
@@ -54,9 +30,79 @@ struct RecorderWidget: View {
     }
   }
 
+  /// A wide or square card: Record/Stop on the left, the mic on the right, each with its words
+  /// underneath. The circles grow to whatever the card leaves after the header and captions.
+  private func sideBySide(_ size: CGSize) -> some View {
+    let column = (size.width - Self.columnGap) / 2
+    let control = max(70, min(column - 16, size.height - 40 - Self.captionHeight - 12, 160))
+    return VStack(alignment: .leading, spacing: 10) {
+      header
+      HStack(alignment: .top, spacing: Self.columnGap) {
+        VStack(spacing: 12) {
+          primary(size: control)
+          detail.frame(maxWidth: .infinity).multilineTextAlignment(.center)
+        }
+        .frame(width: column)
+        VStack(spacing: 12) {
+          micButton(size: control)
+          micCaption.frame(maxWidth: .infinity).multilineTextAlignment(.center)
+        }
+        .frame(width: column)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  /// A tall, narrow card: Record/Stop above the mic, each with its words underneath, the two
+  /// halves splitting the height below the header.
+  private func stacked(_ size: CGSize) -> some View {
+    let headerHeight: CGFloat = 58
+    let half = (size.height - headerHeight - 10) / 2
+    let control = max(64, min(size.width - 12, half - Self.stackedCaptionHeight - 12, 170))
+    return VStack(spacing: 10) {
+      VStack(spacing: 6) {
+        Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+          .lineLimit(1).minimumScaleFactor(0.7)
+        statusPill
+      }
+      .frame(maxWidth: .infinity)
+      .frame(height: headerHeight - 10, alignment: .top)
+      VStack(spacing: 12) {
+        primary(size: control)
+        detail.multilineTextAlignment(.center)
+      }
+      .frame(maxWidth: .infinity, maxHeight: half, alignment: .top)
+      VStack(spacing: 12) {
+        micButton(size: control)
+        micCaption.multilineTextAlignment(.center)
+      }
+      .frame(maxWidth: .infinity, maxHeight: half, alignment: .top)
+    }
+    .frame(width: size.width, height: size.height, alignment: .top)
+  }
+
+  private var header: some View {
+    HStack(spacing: 8) {
+      Text(tr("통화 녹음", "Call recorder")).font(Theme.text(17, weight: .semibold)).foregroundStyle(Theme.textPrimary)
+      Spacer(minLength: 4)
+      statusPill
+    }
+    .frame(height: 30)
+  }
+
+  @ViewBuilder private var statusPill: some View {
+    if let error = service.error {
+      Pill(text: error, color: Theme.warning).lineLimit(1)
+    } else {
+      stateBadge
+    }
+  }
+
   private static let columnGap: CGFloat = 16
   /// Room kept under each circle for its words.
   private static let captionHeight: CGFloat = 74
+  /// Room under each circle in the stacked layout, where long lines wrap instead of shrinking.
+  private static let stackedCaptionHeight: CGFloat = 96
 
   /// Mute/unmute every microphone at the device, so Teams, Zoom, Meet and the rest all go quiet.
   private func micButton(size: CGFloat) -> some View {
@@ -210,8 +256,15 @@ struct RecorderWidget: View {
     if let ended = last.endedAt { parts.append(clock(ended)) }
     if let secs = last.audioSeconds { parts.append(duration(secs)) }
     return VStack(spacing: 3) {
-      Text(tr("마지막 통화", "Last call") + (parts.isEmpty ? "" : " · " + parts.joined(separator: " · ")))
-        .font(Theme.text(13.5, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1).minimumScaleFactor(0.8)
+      ViewThatFits(in: .horizontal) {
+        Text(tr("마지막 통화", "Last call") + (parts.isEmpty ? "" : " · " + parts.joined(separator: " · ")))
+          .lineLimit(1)
+        VStack(spacing: 1) {
+          Text(tr("마지막 통화", "Last call"))
+          if !parts.isEmpty { Text(parts.joined(separator: " · ")).lineLimit(1).minimumScaleFactor(0.8) }
+        }
+      }
+      .font(Theme.text(13.5, weight: .medium)).foregroundStyle(Theme.textTertiary)
       Label(text, systemImage: symbol).font(Theme.text(15, weight: .semibold)).foregroundStyle(color).lineLimit(2)
     }
   }
