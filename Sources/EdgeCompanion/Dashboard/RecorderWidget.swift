@@ -40,7 +40,7 @@ struct RecorderWidget: View {
   private func sideBySide(_ size: CGSize) -> some View {
     let column = (size.width - Self.columnGap * 2) / 3
     let control = max(64, min(column - 12, size.height - 40 - Self.captionHeight - 12, 160))
-    let phoneCircle = max(44, min(control * 0.72, (size.height - 40 - 2 * (Self.phoneCaptionHeight + 8) - 10) / 2))
+    let phoneCircle = max(44, min(control, (size.height - 40 - 2 * (Self.phoneCaptionHeight + 8) - 10) / 2))
     return VStack(alignment: .leading, spacing: 10) {
       header
       HStack(alignment: .top, spacing: Self.columnGap) {
@@ -92,7 +92,7 @@ struct RecorderWidget: View {
           micCaption.multilineTextAlignment(.center)
         }
       }
-      phonePanel(width: size.width)
+      phonePanel(circle: phoneCircle(stacked: size))
       if case let .idle(last?) = service.phase {
         lastCallStrip(last)
       }
@@ -215,18 +215,32 @@ struct RecorderWidget: View {
 
   // MARK: Phone
 
-  private static let phoneGap: CGFloat = 12
+  private static let phoneGap: CGFloat = 6
+  private static let phoneInset: CGFloat = 5
   private static let phoneCaptionHeight: CGFloat = 20
+  /// The phone panel's height beyond its circles: caption, spacing and top/bottom insets.
+  private static let phoneChrome: CGFloat = phoneCaptionHeight + 6 + 2 * 8
 
-  /// The phone pair side by side in its own panel, sized from the card's width (and capped so
-  /// Record and the mic keep the larger circles).
-  private func phonePanel(width: CGFloat) -> some View {
-    let circle = max(44, min((width - 28 - Self.phoneGap) / 2, 84))
-    return HStack(alignment: .top, spacing: Self.phoneGap) {
+  /// The phone pair's circle in the stacked layout: as wide as the card allows side by side, but
+  /// no larger than Record and the mic would be at that size, so all three end up equal when
+  /// height is what limits them and the pair is simply as large as fits when width does.
+  private func phoneCircle(stacked size: CGSize) -> CGFloat {
+    let byWidth = (size.width - 2 * Self.phoneInset - Self.phoneGap) / 2
+    var free = size.height - 26 - 3 * 8   // title row and the gaps between panels
+    if case .idle(_?) = service.phase { free -= 84 + 8 }   // last call strip
+    // Record and the mic each need circle + panelCaptionHeight + 30; the phone panel circle + chrome.
+    let equal = (free - 2 * (Self.panelCaptionHeight + 30) - Self.phoneChrome) / 3
+    return max(44, min(byWidth, equal, 150))
+  }
+
+  /// The phone pair side by side in its own panel, nearly edge to edge so the circles get the width.
+  private func phonePanel(circle: CGFloat) -> some View {
+    HStack(alignment: .top, spacing: Self.phoneGap) {
       phoneControl(answer: true, size: circle)
       phoneControl(answer: false, size: circle)
     }
-    .padding(.vertical, 12)
+    .padding(.vertical, 8)
+    .padding(.horizontal, Self.phoneInset)
     .frame(maxWidth: .infinity)
     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(phoneFill))
     .animation(.easeInOut(duration: 0.25), value: phone.state)
@@ -241,12 +255,12 @@ struct RecorderWidget: View {
   }
 
   private func phoneControl(answer: Bool, size: CGFloat) -> some View {
-    VStack(spacing: 8) {
+    VStack(spacing: 6) {
       if answer { answerButton(size: size) } else { hangUpButton(size: size) }
       phoneCaption(answer: answer, size: size)
         .frame(height: Self.phoneCaptionHeight)
     }
-    .frame(width: size + Self.phoneGap)
+    .frame(width: size)
   }
 
   /// Answers a ringing call; otherwise opens (or launches) the Phone app.
@@ -256,7 +270,7 @@ struct RecorderWidget: View {
       ZStack {
         if ringing {
           Circle().stroke(Theme.battery, lineWidth: 3)
-            .scaleEffect(ring ? 1.22 : 1)
+            .scaleEffect(ring ? 1.1 : 1)
             .opacity(ring ? 0 : 0.9)
             .animation(.easeOut(duration: 1.1).repeatForever(autoreverses: false), value: ring)
             .onAppear { ring = true }
