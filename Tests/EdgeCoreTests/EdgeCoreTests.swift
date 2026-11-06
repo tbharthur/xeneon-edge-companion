@@ -513,3 +513,58 @@ import Testing
     #expect(MicMute.label([dev(1, "usb ", inUse: true), dev(2, "usb ", inUse: true)]) == "mic1 + mic2")
   }
 }
+
+@Suite struct PhoneCallTests {
+  let labels = CallLabels.builtIn
+  func c(_ label: String, _ window: Int = 0) -> CallControl { CallControl(label: label, window: window) }
+
+  @Test func incomingAlertRings() {
+    let m = PhoneCall.match([c("Answer"), c("Decline"), c("Decline with Message")], labels: labels)
+    #expect(m == CallMatch(state: .ringing, answer: 0, hangUp: 1))
+  }
+
+  @Test func inCallControlsAreActive() {
+    let m = PhoneCall.match([c("Mute"), c("Keypad"), c("End")], labels: labels)
+    #expect(m == CallMatch(state: .active, hangUp: 2))
+  }
+
+  @Test func nothingOnScreenIsIdle() {
+    #expect(PhoneCall.match([], labels: labels) == .idle)
+    #expect(PhoneCall.match([c("Call Faye"), c("Show All")], labels: labels) == .idle)
+  }
+
+  @Test func calendarInvitationIsNotACall() {
+    #expect(PhoneCall.match([c("Accept"), c("Decline")], labels: labels) == .idle)
+  }
+
+  @Test func answerAndDeclineMustShareAWindow() {
+    #expect(PhoneCall.match([c("Answer", 0), c("Decline", 1)], labels: labels) == .idle)
+  }
+
+  @Test func ambiguityOffersNothingToPress() {
+    // Two Answer buttons in one alert: unclear which to press.
+    #expect(PhoneCall.match([c("Answer"), c("Answer"), c("Decline")], labels: labels) == .idle)
+    // Two alerts ringing at once.
+    #expect(PhoneCall.match([c("Answer", 0), c("Decline", 0), c("Answer", 1), c("Decline", 1)], labels: labels) == .idle)
+    // Two calls with End buttons: on a call, but no single one to end.
+    #expect(PhoneCall.match([c("End", 0), c("End", 1)], labels: labels) == CallMatch(state: .active))
+  }
+
+  @Test func ringingWinsOverAnActiveCall() {
+    // Call waiting: Hang Up declines the newcomer rather than ending the call in progress.
+    let m = PhoneCall.match([c("End", 0), c("Answer", 1), c("Decline", 1)], labels: labels)
+    #expect(m == CallMatch(state: .ringing, answer: 1, hangUp: 2))
+  }
+
+  @Test func labelsIgnoreCaseAndSpacing() {
+    #expect(PhoneCall.match([c(" hang  up ")], labels: labels) == CallMatch(state: .active, hangUp: 0))
+    #expect(PhoneCall.match([c("응답"), c("거절")], labels: labels).state == .ringing)
+  }
+
+  @Test func readsSystemStringsInPreferredLanguages() {
+    let table = ["en": ["ANSWER": "Answer"], "en_GB": ["ANSWER": "Answer"], "de": ["ANSWER": "Annehmen"], "zh_Hans": ["ANSWER": "接听"]]
+    #expect(CallLabels.strings(in: table, keys: ["ANSWER"], languages: ["de-DE", "en-US"]) == ["Annehmen", "Answer"])
+    #expect(CallLabels.strings(in: table, keys: ["ANSWER"], languages: ["zh-Hans-CN"]) == ["接听"])
+    #expect(CallLabels.strings(in: table, keys: ["ANSWER", "MISSING"], languages: ["fr-FR"]).isEmpty)
+  }
+}

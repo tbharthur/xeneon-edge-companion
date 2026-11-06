@@ -3,12 +3,15 @@ import SwiftUI
 
 /// The meeting recorder: record/stop (the same path as the Poly button), the running time while
 /// recording, transcription progress, the Discord hand-off, and how the last call ended. A second,
-/// equal button mutes the microphone for every app, recording or not.
+/// equal button mutes the microphone for every app, recording or not. A pair of phone buttons
+/// answers and hangs up iPhone calls taken on the Mac (Answer opens the Phone app otherwise).
 struct RecorderWidget: View {
   @ObservedObject private var service = RecorderService.shared
   @ObservedObject private var mic = MicController.shared
+  @ObservedObject private var phone = PhoneController.shared
   @State private var confirmStop = false
   @State private var pulse = false
+  @State private var ring = false
 
   var body: some View {
     WidgetCard {
@@ -23,18 +26,21 @@ struct RecorderWidget: View {
     .onAppear {
       service.retain()
       mic.retain()
+      phone.retain()
     }
     .onDisappear {
       service.release()
       mic.release()
+      phone.release()
     }
   }
 
-  /// A wide or square card: Record/Stop on the left, the mic on the right, each with its words
-  /// underneath. The circles grow to whatever the card leaves after the header and captions.
+  /// A wide or square card: Record/Stop, the mic, then the phone pair stacked, each with its
+  /// words underneath. The circles grow to whatever the card leaves after the header and captions.
   private func sideBySide(_ size: CGSize) -> some View {
-    let column = (size.width - Self.columnGap) / 2
-    let control = max(70, min(column - 16, size.height - 40 - Self.captionHeight - 12, 160))
+    let column = (size.width - Self.columnGap * 2) / 3
+    let control = max(64, min(column - 12, size.height - 40 - Self.captionHeight - 12, 160))
+    let phoneCircle = max(44, min(control * 0.72, (size.height - 40 - 2 * (Self.phoneCaptionHeight + 8) - 10) / 2))
     return VStack(alignment: .leading, spacing: 10) {
       header
       HStack(alignment: .top, spacing: Self.columnGap) {
@@ -46,6 +52,11 @@ struct RecorderWidget: View {
         VStack(spacing: 12) {
           micButton(size: control)
           micCaption.frame(maxWidth: .infinity).multilineTextAlignment(.center)
+        }
+        .frame(width: column)
+        VStack(spacing: 10) {
+          phoneControl(answer: true, size: phoneCircle)
+          phoneControl(answer: false, size: phoneCircle)
         }
         .frame(width: column)
       }
@@ -81,6 +92,7 @@ struct RecorderWidget: View {
           micCaption.multilineTextAlignment(.center)
         }
       }
+      phonePanel(width: size.width)
       if case let .idle(last?) = service.phase {
         lastCallStrip(last)
       }
@@ -198,6 +210,107 @@ struct RecorderWidget: View {
         Text(name).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.textTertiary)
           .lineLimit(1).minimumScaleFactor(0.75)
       }
+    }
+  }
+
+  // MARK: Phone
+
+  private static let phoneGap: CGFloat = 12
+  private static let phoneCaptionHeight: CGFloat = 20
+
+  /// The phone pair side by side in its own panel, sized from the card's width (and capped so
+  /// Record and the mic keep the larger circles).
+  private func phonePanel(width: CGFloat) -> some View {
+    let circle = max(44, min((width - 28 - Self.phoneGap) / 2, 84))
+    return HStack(alignment: .top, spacing: Self.phoneGap) {
+      phoneControl(answer: true, size: circle)
+      phoneControl(answer: false, size: circle)
+    }
+    .padding(.vertical, 12)
+    .frame(maxWidth: .infinity)
+    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(phoneFill))
+    .animation(.easeInOut(duration: 0.25), value: phone.state)
+  }
+
+  private var phoneFill: Color {
+    switch phone.state {
+    case .ringing: Theme.battery.opacity(0.16)
+    case .active: Theme.battery.opacity(0.08)
+    case .idle: Self.panelFill
+    }
+  }
+
+  private func phoneControl(answer: Bool, size: CGFloat) -> some View {
+    VStack(spacing: 8) {
+      if answer { answerButton(size: size) } else { hangUpButton(size: size) }
+      phoneCaption(answer: answer, size: size)
+        .frame(height: Self.phoneCaptionHeight)
+    }
+    .frame(width: size + Self.phoneGap)
+  }
+
+  /// Answers a ringing call; otherwise opens (or launches) the Phone app.
+  private func answerButton(size: CGFloat) -> some View {
+    let ringing = phone.canAnswer
+    return Button { phone.answer() } label: {
+      ZStack {
+        if ringing {
+          Circle().stroke(Theme.battery, lineWidth: 3)
+            .scaleEffect(ring ? 1.22 : 1)
+            .opacity(ring ? 0 : 0.9)
+            .animation(.easeOut(duration: 1.1).repeatForever(autoreverses: false), value: ring)
+            .onAppear { ring = true }
+            .onDisappear { ring = false }
+        }
+        Circle().fill(ringing ? Theme.battery : Color.white.opacity(0.16))
+        Circle().strokeBorder(Color.white.opacity(ringing ? 0.18 : 0.28), lineWidth: 3)
+        Image(systemName: "phone.fill")
+          .font(.system(size: size * 0.36, weight: .semibold))
+          .foregroundStyle(ringing ? Color.black.opacity(0.85) : Theme.battery)
+      }
+      .frame(width: size, height: size)
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  /// Declines a ringing call or ends the current one; dimmed with no call.
+  private func hangUpButton(size: CGFloat) -> some View {
+    let available = phone.canHangUp
+    return Button { phone.hangUp() } label: {
+      ZStack {
+        Circle().fill(available ? Theme.critical.opacity(0.9) : Color.white.opacity(0.06))
+        Circle().strokeBorder(Color.white.opacity(available ? 0.18 : 0.12), lineWidth: 3)
+        Image(systemName: "phone.down.fill")
+          .font(.system(size: size * 0.34, weight: .semibold))
+          .foregroundStyle(available ? Color.white : Color.white.opacity(0.3))
+      }
+      .frame(width: size, height: size)
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!available)
+  }
+
+  @ViewBuilder private func phoneCaption(answer: Bool, size: CGFloat) -> some View {
+    let font = Theme.text(size < 60 ? 14 : 16, weight: .semibold)
+    if !answer, !phone.trusted {
+      // Without Accessibility the call can't be read; Answer still opens Phone.
+      Button { phone.openAccessibilitySettings() } label: {
+        Text(tr("권한 필요", "Allow access")).font(font).foregroundStyle(Theme.warning)
+          .lineLimit(1).minimumScaleFactor(0.6)
+      }
+      .buttonStyle(.plain)
+    } else {
+      let (text, color): (String, Color) = switch (answer, phone.state) {
+      case (true, .ringing): phone.canAnswer ? (tr("받기", "Answer"), Theme.battery) : (tr("전화", "Phone"), Theme.textPrimary)
+      case (true, .active): (tr("통화 중", "On call"), Theme.battery)
+      case (true, .idle): (tr("전화", "Phone"), Theme.textPrimary)
+      case (false, .ringing): (tr("거절", "Decline"), phone.canHangUp ? Theme.critical : Theme.textTertiary)
+      case (false, _): (tr("끊기", "Hang Up"), phone.canHangUp ? Theme.critical : Theme.textTertiary)
+      }
+      Text(text).font(font).foregroundStyle(color)
+        .lineLimit(1).minimumScaleFactor(0.6)
     }
   }
 
