@@ -280,6 +280,7 @@ extension WidgetKind {
     case .media: return "photo.on.rectangle.angled"
     case .quotas: return "gauge.with.dots.needle.67percent"
     case .recorder: return "record.circle"
+    case .monitorVolume: return "slider.vertical.3"
     case .spacer: return "square.dashed"
     }
   }

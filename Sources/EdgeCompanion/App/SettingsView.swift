@@ -400,6 +400,7 @@ extension WidgetKind {
     case .media: return tr("사진·영상", "Photo & video")
     case .quotas: return tr("계정 사용량", "Account quotas")
     case .recorder: return tr("통화 녹음", "Call recorder")
+    case .monitorVolume: return tr("모니터 볼륨", "Monitor volume")
     case .spacer: return tr("빈 공간", "Empty space")
     }
   }

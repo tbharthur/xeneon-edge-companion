@@ -114,6 +114,17 @@ enum IORegistryDisplays {
 
   /// Returns the Edge framebuffers in registry order. Callers own `avServiceEntry` and must release it.
   static func edgeFramebuffers() -> [Framebuffer] {
+    framebuffers { $0 == EdgeIdentity.productName }
+  }
+
+  /// External displays other than the Edge (desk monitors), in registry order.
+  /// Callers own `avServiceEntry` and must release it.
+  static func monitorFramebuffers() -> [Framebuffer] {
+    framebuffers { $0 != EdgeIdentity.productName }
+  }
+
+  /// External framebuffers whose product name passes `matches`. Callers own `avServiceEntry`.
+  static func framebuffers(where matches: (String) -> Bool) -> [Framebuffer] {
     var result: [Framebuffer] = []
     var iterator = io_iterator_t()
     let root = IORegistryGetRootEntry(kIOMainPortDefault)
@@ -133,7 +144,7 @@ enum IORegistryDisplays {
         if let attrs = IORegistryEntryCreateCFProperty(entry, "DisplayAttributes" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? [String: Any],
            let product = attrs["ProductAttributes"] as? [String: Any],
            let productName = product["ProductName"] as? String,
-           productName == EdgeIdentity.productName {
+           matches(productName) {
           current = (productName, (product["AlphanumericSerialNumber"] as? String) ?? "")
         }
         IOObjectRelease(entry)

@@ -1,6 +1,6 @@
 # Custom dashboard widgets
 
-Updated: 2026-11-05.
+Updated: 2026-11-11.
 
 EdgeCompanion has no plugin system; custom widgets were added to the local source and the app rebuilt/reinstalled. Its built-in web page widget can display a web dashboard, but the session reported only one such widget supported.
 
@@ -17,6 +17,7 @@ Arthur found the first UI too small and the recorder too empty. The redesign use
 - The redesigned account tiles emphasize whichever usage limit is closest to exhaustion, with three small bars underneath. Blocked tiles turn red; Fable-blocked tiles turn amber. Both show the release time; the header counts ready/blocked accounts. A reset-time formatting fix preserves minutes for dates beyond today.
 - Tiers (2026-11-03, Arthur): Claude Ultra plans (feed `plan` containing "Ultra"; currently gmail and arthur) are the top tier. They sort first among Claude accounts even when blocked and sit in a left column of larger tiles with a plan tag, a big number and labeled horizontal bars with percentages. The Team 5x seats, cascade and the Codex accounts form the second tier in a 3×2 grid of smaller tiles on the right. With only one tier present the original grid is used.
 - Groups (2026-11-04, Arthur): the widget shows three labeled groups top to bottom: Claude Ultra as full-width rows (number left, labeled bars right), Claude Team as a tile grid, then Codex as a tile grid. Each group label carries its ready and blocked counts; the header keeps only the feed-offline pill. Grouping lives in EdgeCore `QuotaBucket`, with a test. This replaces the left-column tier split.
+- One row per account (2026-11-11, Arthur): the widget was too crowded; what matters most is each account's email, whether it is blocked, and when a blocked account comes back. Each row shows a status dot, the email (feed `email`, falling back to the label), and "Ready · N% used", "Blocked", or amber "Fable blocked" when only Fable is out. A blocked row's return time sits at the right edge in the same shape on every row: the clock time in bold white, with a smaller red (amber for Fable) date under it ("12:00 PM" over "Fri, 11/13"), so the times line up (Arthur's layout, same day). Times round to the nearest minute, so a 6:59:59 reset reads 7:00 PM. The per-window bars, big percentages and the active-account bolt are gone. Rows stay under small Claude Ultra / Claude Team / Codex labels; the header shows "N of M ready". Below about 420 points wide the status sits under the email. The status rule is EdgeCore `QuotaAccountView.headline`, with a test. This replaces the tile and labeled-bar designs above.
 - Polls every minute while visible. If the feed fails, keeps the last values greyed out with a feed-status indication.
 - Classification tests passed and small/large/wide layouts were rendered and refined. The redesigned preview used sample data with blocked-account examples while the Edge was asleep.
 
@@ -39,3 +40,16 @@ Arthur found the first UI too small and the recorder too empty. The redesign use
 - Verification: call-state tests pass. During Arthur's real outgoing call at 4:49 PM on 2026-11-05, the installed app found the in-call End button. The Edge panel showed "On call" with a red Hang Up, and nothing was pressed. When the call ended, the widget went back to idle and Phone quit itself. Idle, ringing, active and no-Accessibility layouts were rendered at 600, 720 and 800-point dashboard widths and in a wide card. **Unverified until a real incoming call:** that the Notification Center alert's Answer and Decline buttons are readable through Accessibility with those labels, and that pressing them (and End) works. The app logs the call windows' button labels to `~/Library/Logs/EdgeCompanion/EdgeCompanion.log` (lines starting `phone:`) on every state change, to check this after the first incoming call. If ringing is not detected, Answer only opens Phone and Hang Up stays dimmed.
 
 Verification boundaries: rendered previews often used sample data while the panel slept; the final installed layouts were not all observed directly on the panel.
+
+## Monitor volume
+
+- Added 2026-11-11 at Arthur's request: a tall mixing-desk fader for the LG ULTRAWIDE's own speaker volume, with a Mute key that lights red. It sits at the right end of the dashboard page (quotas, recorder, monitor volume). Arthur planned to widen the dashboard to make room.
+- macOS has no software volume for the LG's display audio, so the widget uses DDC/CI: MCCS 0x62 (volume, 0-100 on the LG) and 0x8D (mute: 1 muted, 2 unmuted). It targets the first external display that is not the Edge, and only those two codes (EdgeCore `MonitorAudioVCP`). The Edge stays limited to its colour codes.
+- On the Edge a vertical finger drag arrives as scroll events and a tap as a click, so the fader uses an AppKit input view: drag moves it with the finger, a tap jumps to that point, momentum after lifting is ignored. Writes collapse to the newest value while the bus is busy.
+- Reads run every 4 seconds while visible and pause for 2.5 seconds after a change, so the fader never jumps back mid-drag.
+- The LG drops the first DDC request frame and answers an empty "not ready" reply. Reads to the monitor therefore send the request twice, 10 ms apart (as m1ddc does), then wait 40 ms. Measured 2026-11-11: about 1 in 10 reads answered with one frame, 8-9 in 10 with two, mute (0x8D) included. Edge reads are unchanged.
+- A missed read is normal on the shared bus (MonitorControl, which Arthur keeps running, uses it too). The widget shows "Can't reach" only after three missed volume reads in a row. A missed mute read keeps the last known state; a monitor that never reports mute is asked five times, then the widget tracks its own taps.
+- MonitorControl's volume keys change the same LG volume; the widget picks those changes up on its next read.
+- Running `m1ddc ... get` while the widget polls returns garbage (for example 8224) because the replies collide; the app checks the VCP code in each reply, m1ddc does not. Writes are unaffected.
+- Verification (2026-11-11): rule tests pass; the panel showed the LG's real volume (43%, then 35% and 50% after changes made elsewhere). Muting the LG via DDC held mute for 10 seconds with the volume unchanged. The fader and Mute key were not exercised by touch; Arthur was on a call during the final installs, so no further audio tests ran.
+

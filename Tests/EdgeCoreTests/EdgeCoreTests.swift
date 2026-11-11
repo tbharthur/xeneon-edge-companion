@@ -395,6 +395,52 @@ import Testing
     #expect(groups.map { $0.accounts.map(\.id) } == [["ultra"], ["seat"], ["cx"]])
     #expect(QuotaBucket.group([]).isEmpty)
   }
+
+  @Test func headlineLeadsWithEmailAndWhenBlockedAccountsReturn() {
+    let f = feed([
+      #"{"id":"a","provider":"claude","label":"seat","email":"seat@example.com","state":"ok","measuredAt":"2026-10-27T03:50:00Z","windows":[{"key":"weekly","usedPct":100,"resetsAt":"2026-10-30T20:00:00Z"},{"key":"weekly_fable","usedPct":40}]}"#,
+      #"{"id":"b","provider":"claude","label":"nofable","state":"ok","measuredAt":"2026-10-27T03:50:00Z","windows":[{"key":"weekly","usedPct":20},{"key":"weekly_fable","usedPct":100,"resetsAt":"2026-10-29T20:00:00Z"}]}"#,
+      #"{"id":"c","provider":"claude","label":"open","email":" ","state":"ok","measuredAt":"2026-10-27T03:50:00Z","windows":[{"key":"five_hour","usedPct":12},{"key":"weekly","usedPct":84}]}"#,
+      #"{"id":"d","provider":"claude","label":"out","state":"signed_out"}"#,
+    ].joined(separator: ","))
+    let byID = Dictionary(uniqueKeysWithValues: QuotaModel.accounts(from: f, feedReachable: true, now: now).map { ($0.id, $0) })
+    #expect(byID["a"]?.displayName == "seat@example.com")
+    #expect(byID["a"]?.headline == .blocked(until: QuotaModel.parseDate("2026-10-30T20:00:00Z")))
+    #expect(byID["b"]?.headline == .fableBlocked(until: QuotaModel.parseDate("2026-10-29T20:00:00Z")))
+    #expect(byID["c"]?.displayName == "open")
+    #expect(byID["c"]?.headline == .ready(usedPct: 84))
+    #expect(byID["d"]?.headline == .unavailable)
+  }
+}
+
+@Suite struct MonitorAudioTests {
+  @Test func muteFollowsMCCS() {
+    #expect(MonitorAudio.isMuted(1) == true)
+    #expect(MonitorAudio.isMuted(2) == false)
+    #expect(MonitorAudio.isMuted(0) == nil)
+    #expect(MonitorAudio.muteValue(true) == 1 && MonitorAudio.muteValue(false) == 2)
+  }
+
+  @Test func scalesToTheMonitorsMaximum() {
+    #expect(MonitorAudio.fraction(current: 43, maximum: 100) == 0.43)
+    #expect(MonitorAudio.fraction(current: 50, maximum: 0) == 0.5)
+    #expect(MonitorAudio.fraction(current: 300, maximum: 100) == 1)
+    #expect(MonitorAudio.raw(0.43, maximum: 100) == 43)
+    #expect(MonitorAudio.raw(1.4, maximum: 100) == 100)
+    #expect(MonitorAudio.raw(-1, maximum: 100) == 0)
+  }
+
+  @Test func faderFollowsTheFinger() {
+    // Finger up a quarter of the track raises the level by a quarter.
+    #expect(MonitorAudio.dragged(from: 0.5, dy: -100, travel: 400) == 0.75)
+    #expect(MonitorAudio.dragged(from: 0.5, dy: 100, travel: 400) == 0.25)
+    #expect(MonitorAudio.dragged(from: 0.9, dy: -400, travel: 400) == 1)
+    #expect(MonitorAudio.dragged(from: 0.4, dy: 10, travel: 0) == 0.4)
+    // Taps: top of the track is full, bottom is zero, outside clamps.
+    #expect(MonitorAudio.level(atY: 17, top: 17, travel: 400) == 1)
+    #expect(MonitorAudio.level(atY: 217, top: 17, travel: 400) == 0.5)
+    #expect(MonitorAudio.level(atY: 600, top: 17, travel: 400) == 0)
+  }
 }
 
 @Suite struct RecorderModelTests {

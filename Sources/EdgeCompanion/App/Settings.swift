@@ -31,6 +31,8 @@ enum WidgetKind: String, Codable, CaseIterable, Identifiable {
   case quotas
   /// The local meeting recorder: record/stop, running time, transcription and hand-off status.
   case recorder
+  /// The desk monitor's speaker volume and mute over DDC/CI, as a fader.
+  case monitorVolume
   /// An empty cell for spacing; any number of them may be placed.
   case spacer
   var id: String { rawValue }

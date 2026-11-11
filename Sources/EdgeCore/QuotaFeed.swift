@@ -11,6 +11,7 @@ public struct QuotaFeed: Decodable, Equatable, Sendable {
     public var id: String
     public var provider: String
     public var label: String?
+    public var email: String?
     public var plan: String?
     public var state: String?
     public var active: Bool?
@@ -51,6 +52,8 @@ public struct QuotaAccountView: Equatable, Sendable, Identifiable {
   public var id: String
   public var provider: QuotaProvider
   public var label: String
+  /// The account's sign-in email, when the feed gives one.
+  public var email: String?
   public var plan: String?
   public var active: Bool
   public var detail: String?
@@ -68,8 +71,22 @@ public struct QuotaAccountView: Equatable, Sendable, Identifiable {
   public var fableBlocked: Bool
   public var fableFreeAt: Date?
 
+  /// What the dashboard calls the account: its email, else the feed's label.
+  public var displayName: String {
+    guard let email, !email.trimmingCharacters(in: .whitespaces).isEmpty else { return label }
+    return email
+  }
+
   /// A top-tier plan (Claude Ultra): listed first and drawn larger than the rest.
   public var premium: Bool { plan?.range(of: "ultra", options: .caseInsensitive) != nil }
+
+  /// The one-line answer the dashboard leads with: can this account be used, and if not, when.
+  public var headline: QuotaHeadline {
+    guard condition == .confirmed else { return .unavailable }
+    if overallBlocked { return .blocked(until: overallFreeAt) }
+    if fableBlocked { return .fableBlocked(until: fableFreeAt) }
+    return .ready(usedPct: [fiveHour, weekly, fable].compactMap { $0?.usedPct }.max())
+  }
 
   /// The fullest window, for ordering usable accounts by headroom.
   var headroomScore: Double {
@@ -77,6 +94,17 @@ public struct QuotaAccountView: Equatable, Sendable, Identifiable {
   }
 
   var fableUsable: Bool { group == .usable && provider == .claude && !fableBlocked && fable != nil }
+}
+
+/// An account's status in one phrase. Fable-blocked accounts still work on other models.
+public enum QuotaHeadline: Equatable, Sendable {
+  /// Usable; the fullest window's percentage, if any reading has one.
+  case ready(usedPct: Double?)
+  /// Out of usage until every exhausted window resets (nil: no reset time known).
+  case blocked(until: Date?)
+  case fableBlocked(until: Date?)
+  /// No trustworthy reading (signed out, disabled, stale, or the feed is down).
+  case unavailable
 }
 
 /// The dashboard's account groups, in display order: Claude Ultra plans, the other Claude plans
@@ -151,7 +179,7 @@ public enum QuotaModel {
     let group: QuotaGroup = confirmed ? (overallBlocked ? .blocked : .usable) : .unknown
 
     return QuotaAccountView(
-      id: raw.id, provider: provider, label: raw.label ?? raw.id, plan: raw.plan, active: raw.active == true,
+      id: raw.id, provider: provider, label: raw.label ?? raw.id, email: raw.email, plan: raw.plan, active: raw.active == true,
       detail: raw.detail, state: raw.state ?? "unknown", condition: condition, group: group, measuredAt: measured,
       fiveHour: fiveHour, weekly: weekly, fable: fable,
       overallBlocked: confirmed && overallBlocked,
