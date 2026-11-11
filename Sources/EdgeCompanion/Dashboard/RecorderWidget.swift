@@ -1,7 +1,7 @@
 import EdgeCore
 import SwiftUI
 
-/// The meeting recorder: record/stop (the same path as the Poly button), the running time while
+/// The meeting recorder: record/stop, the running time while
 /// recording, transcription progress, the Discord hand-off, and how the last call ended. A second,
 /// equal button mutes the microphone for every app, recording or not. A pair of phone buttons
 /// answers and hangs up iPhone calls taken on the Mac (Answer opens the Phone app otherwise).
@@ -413,8 +413,6 @@ struct RecorderWidget: View {
         Text(tr("녹음 시작", "Record")).font(Theme.text(20, weight: .semibold)).foregroundStyle(Theme.textPrimary)
         if let last {
           lastRun(last)
-        } else {
-          Text(tr("Poly 버튼과 같아요", "Same as the Poly button")).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.textTertiary)
         }
       }
     }

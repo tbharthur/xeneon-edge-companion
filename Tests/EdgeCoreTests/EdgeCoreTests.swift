@@ -508,7 +508,7 @@ import Testing
   }
 
   @Test func namesTheMicAnAppIsUsing() {
-    // Teams on the MV7 while the Poly is the system default.
+    // Teams on the MV7 while a different mic is the system default.
     #expect(MicMute.label([dev(1, "usb ", isDefault: true), dev(2, "usb ", inUse: true), dev(3, "virt", inUse: true)]) == "mic2")
     #expect(MicMute.label([dev(1, "usb ", inUse: true), dev(2, "usb ", inUse: true)]) == "mic1 + mic2")
   }

@@ -176,9 +176,8 @@ struct AppSettings: Codable, Equatable {
   var discordClientID = ""
   /// Multi-account usage feed read by the account quotas widget.
   var quotaFeedURL = "http://127.0.0.1:8797/v1/usage"
-  /// Recorder widget: the pipeline script, the output device to record from, and the recording name.
+  /// Recorder widget: the pipeline script and the recording name. The output device is whatever the Mac uses by default.
   var recorderScript = "~/Dev/assistant/tools/meeting-recorder/record.sh"
-  var recorderOutputDevice = "Poly Sync 20-M"
   var recorderName = "local-meeting"
   /// Show each Mac notification banner across the dashboard for a moment.
   var notificationsEnabled = false
@@ -237,7 +236,6 @@ struct AppSettings: Codable, Equatable {
     notificationsEnabled = v(.notificationsEnabled, notificationsEnabled)
     quotaFeedURL = v(.quotaFeedURL, quotaFeedURL)
     recorderScript = v(.recorderScript, recorderScript)
-    recorderOutputDevice = v(.recorderOutputDevice, recorderOutputDevice)
     recorderName = v(.recorderName, recorderName)
     mediaItems = v(.mediaItems, mediaItems)
     profiles = v(.profiles, profiles)

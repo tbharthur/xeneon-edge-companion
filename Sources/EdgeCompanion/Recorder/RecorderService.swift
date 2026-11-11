@@ -4,7 +4,7 @@ import Foundation
 
 /// Watches the local meeting recorder (capture PID/ready files, the pipeline's status file and its
 /// log) while the recorder widget is on screen, and starts or stops a recording through the same
-/// script the Poly speakerphone button uses.
+/// script.
 @MainActor
 final class RecorderService: ObservableObject {
   static let shared = RecorderService()
@@ -94,9 +94,7 @@ final class RecorderService: ObservableObject {
   func start() {
     guard requested == nil else { return }
     let s = SettingsStore.shared.settings
-    var env = ProcessInfo.processInfo.environment
-    if !s.recorderOutputDevice.isEmpty { env["RECORD_AUDIO_FORCE_OUTPUT_DEVICE"] = s.recorderOutputDevice }
-    run(.start, arguments: ["start", "--name", s.recorderName.isEmpty ? "local-meeting" : s.recorderName], environment: env)
+    run(.start, arguments: ["start", "--name", s.recorderName.isEmpty ? "local-meeting" : s.recorderName], environment: ProcessInfo.processInfo.environment)
   }
 
   func stop() {
