@@ -135,7 +135,8 @@ private struct QuotaRow: View {
     Text(account.displayName)
       .font(Theme.text(15, weight: .semibold))
       .foregroundStyle(Theme.textPrimary)
-      .lineLimit(1).minimumScaleFactor(0.7).allowsTightening(true).truncationMode(.middle)
+      .lineLimit(1).minimumScaleFactor(0.55).allowsTightening(true).truncationMode(.middle)
+      .layoutPriority(2)
   }
 
   @ViewBuilder
@@ -167,13 +168,14 @@ private struct QuotaRow: View {
     }
   }
 
-  /// A small tinted "12:00 PM" over a bold white "Fri, 11/13", right-aligned with fixed-width
-  /// digits so the rows line up.
+  /// The return day and time in small tint ("Fri 11/13 · 12:00 PM") over a bold white countdown
+  /// ("in 2 days"), right-aligned so the rows line up.
   private func backAt(_ until: Date, tint: Color) -> some View {
     let (day, time) = Self.backTime(until)
     return VStack(alignment: .trailing, spacing: 1) {
-      Text(time).font(Theme.number(12, weight: .semibold)).foregroundStyle(tint)
-      Text(day).font(Theme.number(15, weight: .bold)).foregroundStyle(Theme.textPrimary)
+      Text("\(day) · \(time)").font(Theme.number(11.5, weight: .semibold)).foregroundStyle(tint)
+      Text(tr("\(QuotaCountdown.text(until: until, now: now)) 후", "in \(QuotaCountdown.text(until: until, now: now))"))
+        .font(Theme.number(14.5, weight: .bold)).foregroundStyle(Theme.textPrimary)
     }
     .lineLimit(1).fixedSize()
   }
@@ -184,8 +186,9 @@ private struct QuotaRow: View {
     let date = Date(timeIntervalSinceReferenceDate: (raw.timeIntervalSinceReferenceDate / 60).rounded() * 60)
     let day = DateFormatter()
     day.setLocalizedDateFormatFromTemplate("EEEMd")
+    day.dateFormat = day.dateFormat.replacingOccurrences(of: ",", with: "")
     let time = DateFormatter()
-    time.setLocalizedDateFormatFromTemplate("jmm")
+    time.setLocalizedDateFormatFromTemplate(Calendar.current.component(.minute, from: date) == 0 ? "j" : "jmm")
     return (day.string(from: date), time.string(from: date))
   }
 

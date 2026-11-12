@@ -413,6 +413,20 @@ import Testing
   }
 }
 
+@Suite struct QuotaCountdownTests {
+  let now = Date(timeIntervalSince1970: 1_000_000)
+
+  @Test func picksTheNaturalUnit() {
+    #expect(QuotaCountdown.text(until: now.addingTimeInterval(20), now: now) == "1 min")
+    #expect(QuotaCountdown.text(until: now.addingTimeInterval(45 * 60), now: now) == "45 min")
+    #expect(QuotaCountdown.text(until: now.addingTimeInterval(65 * 60), now: now) == "1 hr")
+    #expect(QuotaCountdown.text(until: now.addingTimeInterval(9 * 3600 + 100), now: now) == "9 hrs")
+    #expect(QuotaCountdown.text(until: now.addingTimeInterval(30 * 3600), now: now) == "1 day")
+    #expect(QuotaCountdown.text(until: now.addingTimeInterval(44 * 3600), now: now) == "2 days")
+    #expect(QuotaCountdown.text(until: now.addingTimeInterval(-60), now: now) == "1 min")
+  }
+}
+
 @Suite struct MonitorAudioTests {
   @Test func muteFollowsMCCS() {
     #expect(MonitorAudio.isMuted(1) == true)

@@ -212,3 +212,21 @@ public enum QuotaModel {
     return a.label.localizedStandardCompare(b.label) == .orderedAscending
   }
 }
+
+/// How long until a blocked account comes back, in the largest unit that reads naturally:
+/// "45 min" under an hour, "9 hrs" under a day, then whole days ("2 days").
+public enum QuotaCountdown {
+  public static func text(until: Date, now: Date) -> String {
+    let seconds = max(until.timeIntervalSince(now), 0)
+    if seconds < 3600 {
+      let m = max(Int((seconds / 60).rounded()), 1)
+      return "\(m) min"
+    }
+    if seconds < 86400 {
+      let h = max(Int((seconds / 3600).rounded()), 1)
+      return h == 1 ? "1 hr" : "\(h) hrs"
+    }
+    let d = max(Int((seconds / 86400).rounded()), 1)
+    return d == 1 ? "1 day" : "\(d) days"
+  }
+}
