@@ -167,12 +167,13 @@ private struct QuotaRow: View {
     }
   }
 
-  /// "12:00 PM" over a smaller "Fri, 11/13", right-aligned with fixed-width digits so the rows line up.
+  /// A small tinted "12:00 PM" over a bold white "Fri, 11/13", right-aligned with fixed-width
+  /// digits so the rows line up.
   private func backAt(_ until: Date, tint: Color) -> some View {
     let (day, time) = Self.backTime(until)
     return VStack(alignment: .trailing, spacing: 1) {
-      Text(time).font(Theme.number(15, weight: .bold)).foregroundStyle(Theme.textPrimary)
-      Text(day).font(Theme.number(12, weight: .semibold)).foregroundStyle(tint)
+      Text(time).font(Theme.number(12, weight: .semibold)).foregroundStyle(tint)
+      Text(day).font(Theme.number(15, weight: .bold)).foregroundStyle(Theme.textPrimary)
     }
     .lineLimit(1).fixedSize()
   }
