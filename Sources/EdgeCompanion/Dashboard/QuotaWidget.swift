@@ -109,21 +109,29 @@ private struct QuotaRow: View {
 
   var body: some View {
     let headline = account.headline
+    let until = returnTime(headline)
     HStack(spacing: 10) {
       Circle().fill(color(headline)).frame(width: 9, height: 9)
       if oneLine {
-        email
-        Spacer(minLength: 8)
         status(headline)
+        email.padding(.leading, 4)
+        Spacer(minLength: 8)
+        if let until { backAt(until, tint: color(headline)) }
       } else {
+        // Two lines that share a baseline grid: status with the return day and time on top,
+        // the email with the countdown under it.
         VStack(alignment: .leading, spacing: 2) {
-          email
-          status(headline)
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            status(headline)
+            Spacer(minLength: 6)
+            if let until { returnDay(until, tint: color(headline)) }
+          }
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            email
+            Spacer(minLength: 6)
+            if let until { countdown(until) }
+          }
         }
-        Spacer(minLength: 6)
-      }
-      if let until = returnTime(headline) {
-        backAt(until, tint: color(headline)).layoutPriority(1)
       }
     }
     .padding(.horizontal, 12)
@@ -131,12 +139,12 @@ private struct QuotaRow: View {
     .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(background(headline)))
   }
 
+  /// Always the same size; a name too long for the row is shortened in the middle.
   private var email: some View {
     Text(account.displayName)
-      .font(Theme.text(15, weight: .semibold))
+      .font(Theme.text(13.5, weight: .semibold))
       .foregroundStyle(Theme.textPrimary)
-      .lineLimit(1).minimumScaleFactor(0.55).allowsTightening(true).truncationMode(.middle)
-      .layoutPriority(2)
+      .lineLimit(1).truncationMode(.middle)
   }
 
   @ViewBuilder
@@ -144,20 +152,20 @@ private struct QuotaRow: View {
     switch headline {
     case let .ready(used):
       HStack(spacing: 6) {
-        Text(tr("사용 가능", "Ready")).font(Theme.text(13.5, weight: .semibold)).foregroundStyle(Theme.battery)
+        Text(tr("사용 가능", "Ready")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.battery)
         if let used {
           Text(tr("\(Int(used.rounded()))% 사용", "\(Int(used.rounded()))% used"))
-            .font(Theme.text(12.5, weight: .medium))
+            .font(Theme.text(14, weight: .medium))
             .foregroundStyle(used >= 75 ? Theme.warning : Theme.textTertiary)
         }
       }
       .lineLimit(1)
     case .blocked:
-      Text(tr("막힘", "Blocked")).font(Theme.text(13.5, weight: .semibold)).foregroundStyle(Theme.critical).lineLimit(1)
+      Text(tr("막힘", "Blocked")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.critical).lineLimit(1)
     case .fableBlocked:
-      Text(tr("Fable 막힘", "Fable blocked")).font(Theme.text(13.5, weight: .semibold)).foregroundStyle(Theme.warning).lineLimit(1)
+      Text(tr("Fable 막힘", "Fable blocked")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.warning).lineLimit(1)
     case .unavailable:
-      Text(unavailableText).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1)
+      Text(unavailableText).font(Theme.text(14.5, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1)
     }
   }
 
@@ -168,16 +176,26 @@ private struct QuotaRow: View {
     }
   }
 
-  /// The return day and time in small tint ("Fri 11/13 · 12:00 PM") over a bold white countdown
-  /// ("in 2 days"), right-aligned so the rows line up.
-  private func backAt(_ until: Date, tint: Color) -> some View {
+  /// "Fri 11/13 · 12 PM" in the row's tint.
+  private func returnDay(_ until: Date, tint: Color) -> some View {
     let (day, time) = Self.backTime(until)
-    return VStack(alignment: .trailing, spacing: 1) {
-      Text("\(day) · \(time)").font(Theme.number(11.5, weight: .semibold)).foregroundStyle(tint)
-      Text(tr("\(QuotaCountdown.text(until: until, now: now)) 후", "in \(QuotaCountdown.text(until: until, now: now))"))
-        .font(Theme.number(14.5, weight: .bold)).foregroundStyle(Theme.textPrimary)
+    return Text("\(day) · \(time)").font(Theme.number(11.5, weight: .semibold)).foregroundStyle(tint)
+      .lineLimit(1).fixedSize()
+  }
+
+  /// "in 2 days" in bold white.
+  private func countdown(_ until: Date) -> some View {
+    Text(tr("\(QuotaCountdown.text(until: until, now: now)) 후", "in \(QuotaCountdown.text(until: until, now: now))"))
+      .font(Theme.number(14.5, weight: .bold)).foregroundStyle(Theme.textPrimary)
+      .lineLimit(1).fixedSize()
+  }
+
+  /// The return day and time over the countdown, right-aligned, for the one-line layout.
+  private func backAt(_ until: Date, tint: Color) -> some View {
+    VStack(alignment: .trailing, spacing: 1) {
+      returnDay(until, tint: tint)
+      countdown(until)
     }
-    .lineLimit(1).fixedSize()
   }
 
   /// Date and time the account comes back, rounded to the nearest minute so a reset at 6:59:59
