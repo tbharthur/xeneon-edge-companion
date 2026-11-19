@@ -66,13 +66,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   /// The login item remembers where the app was when it was turned on. After the app moves (for
   /// example from ~/Applications to /Applications), register it again from here so it still opens
-  /// at login. Runs once per location.
+  /// at login. Runs once per location, and only for an installed copy, never a build folder's.
   private func followLoginItem() {
     let status = SMAppService.mainApp.status
     let here = Bundle.main.bundlePath
     let defaults = UserDefaults.standard
     Log.info(.app, "login item: status \(status.rawValue), registered from \(defaults.string(forKey: Self.loginItemPathKey) ?? "unknown")")
-    guard status == .enabled, defaults.string(forKey: Self.loginItemPathKey) != here else { return }
+    guard ClaudeStatusLine.isRunningFromApplications, status == .enabled,
+          defaults.string(forKey: Self.loginItemPathKey) != here else { return }
     do {
       try SMAppService.mainApp.register()
       defaults.set(here, forKey: Self.loginItemPathKey)

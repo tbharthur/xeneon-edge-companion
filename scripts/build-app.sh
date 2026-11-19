@@ -66,18 +66,28 @@ if [[ "${1:-}" == "--install" ]]; then
   # /Applications when this account may write there (admins can, without sudo), else ~/Applications.
   # Local Network privacy looks the app up as whichever user macOS counts as the console user; with
   # another account logged in at the same time, that user may be unable to read this one's home
-  # folder, and the app then never prompts nor appears under Privacy & Security → Local Network.
+  # folder, and the app then can't be resolved for the Local Network settings.
   if [[ -w /Applications ]]; then DIR=/Applications; else DIR="$HOME/Applications"; fi
   DEST="$DIR/$APP_NAME.app"
+  OLD="$HOME/Applications/$APP_NAME.app"
+  LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
   mkdir -p "$DIR"
+  # Copy and check the new app beside the old one first, so a failed copy never leaves no app.
+  rm -rf "$DEST.new"
+  cp -R "$APP" "$DEST.new"
+  codesign --verify --strict "$DEST.new"
   pkill -x "$APP_NAME" 2>/dev/null && sleep 1 || true
-  rm -rf "$DEST"
-  cp -R "$APP" "$DEST"
+  # From here on, whatever happens, open whichever copy is in place.
+  trap 'open "$DEST" 2>/dev/null || { [[ -d "$DEST.old" ]] && mv "$DEST.old" "$DEST" && open "$DEST"; }' EXIT
+  rm -rf "$DEST.old"
+  if [[ -d "$DEST" ]]; then mv "$DEST" "$DEST.old"; fi
+  mv "$DEST.new" "$DEST"
+  rm -rf "$DEST.old"
   # One installed copy only, so LaunchServices and the privacy settings find this one.
-  if [[ "$DIR" == /Applications && -d "$HOME/Applications/$APP_NAME.app" ]]; then
-    rm -rf "$HOME/Applications/$APP_NAME.app"
+  if [[ "$DIR" == /Applications && -d "$OLD" ]]; then
+    "$LSREGISTER" -u "$OLD" || true
+    rm -rf "$OLD"
   fi
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
-  open "$DEST"
-  echo "Installed and launched $DEST"
+  "$LSREGISTER" -f "$DEST" || echo "LaunchServices registration failed; the app still opens." >&2
+  echo "Installed $DEST"
 fi
