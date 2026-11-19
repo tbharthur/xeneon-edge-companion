@@ -1,4 +1,5 @@
 import Combine
+import EdgeCore
 import Foundation
 
 /// One rate-limit window: how much is used and when it resets.

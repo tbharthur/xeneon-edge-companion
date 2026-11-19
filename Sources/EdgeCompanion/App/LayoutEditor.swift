@@ -279,8 +279,7 @@ extension WidgetKind {
     case .web: return "globe"
     case .media: return "photo.on.rectangle.angled"
     case .quotas: return "gauge.with.dots.needle.67percent"
-    case .recorder: return "record.circle"
-    case .monitorVolume: return "slider.vertical.3"
+    case .callSound: return "phone.and.waveform"
     case .spacer: return "square.dashed"
     }
   }

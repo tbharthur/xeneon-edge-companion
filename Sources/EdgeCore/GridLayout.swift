@@ -9,6 +9,18 @@ public enum WidgetSize: String, Codable, CaseIterable, Sendable {
 
   public var columns: Int { self == .wide || self == .large ? 2 : 1 }
   public var rows: Int { self == .tall || self == .large ? 2 : 1 }
+
+  /// The slot for one widget taking over the cells of several: 3+ cells make a large slot, two a
+  /// wide or tall one (wide if a wide slot was among them), one stays as it was.
+  public static func covering(_ sizes: [WidgetSize]) -> WidgetSize? {
+    guard let first = sizes.first else { return nil }
+    let cells = sizes.reduce(0) { $0 + $1.columns * $1.rows }
+    switch cells {
+    case 3...: return .large
+    case 2: return sizes.count == 1 ? first : sizes.contains(.wide) ? .wide : .tall
+    default: return first
+    }
+  }
 }
 
 /// Packs widgets into a grid with a fixed number of rows, filling column by column so the reading

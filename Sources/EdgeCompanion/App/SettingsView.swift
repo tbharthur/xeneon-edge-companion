@@ -399,8 +399,7 @@ extension WidgetKind {
     case .web: return tr("웹페이지", "Web page")
     case .media: return tr("사진·영상", "Photo & video")
     case .quotas: return tr("계정 사용량", "Account quotas")
-    case .recorder: return tr("통화 녹음", "Call recorder")
-    case .monitorVolume: return tr("모니터 볼륨", "Monitor volume")
+    case .callSound: return tr("통화와 소리", "Calls & sound")
     case .spacer: return tr("빈 공간", "Empty space")
     }
   }
@@ -429,16 +428,22 @@ private struct QuotaFeedSection: View {
   private func apply() { store.settings.quotaFeedURL = draft.trimmingCharacters(in: .whitespaces) }
 }
 
-// MARK: - Recorder widget
+// MARK: - Calls & sound widget
 
 private struct RecorderSection: View {
   @ObservedObject var store: SettingsStore
+  @ObservedObject private var sonos = SonosVolumeController.shared
 
   var body: some View {
-    Section(tr("통화 녹음 위젯", "Call recorder widget")) {
+    Section(tr("통화와 소리 위젯", "Calls & sound widget")) {
       TextField(tr("녹음 스크립트", "Recorder script"), text: $store.settings.recorderScript)
       TextField(tr("녹음 이름", "Recording name"), text: $store.settings.recorderName)
       Text(tr("녹음 버튼은 이 스크립트를 'start'와 'stop'으로 실행해요.", "The buttons run this script with 'start' and 'stop'."))
+        .font(.caption).foregroundStyle(.secondary)
+      TextField(tr("Sonos 방", "Sonos room"), text: $store.settings.sonosRoom)
+      Text(sonos.rooms.isEmpty
+        ? tr("Sonos 앱에 나오는 방 이름이에요. 이 방 스피커의 볼륨을 조절해요.", "The room's name as the Sonos app shows it; the fader controls that room's speaker.")
+        : tr("찾은 방: ", "Rooms found: ") + sonos.rooms.joined(separator: ", "))
         .font(.caption).foregroundStyle(.secondary)
     }
   }

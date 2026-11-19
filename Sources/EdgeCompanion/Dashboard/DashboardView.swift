@@ -162,8 +162,7 @@ struct WidgetHost: View {
     case .web: WebWidget()
     case .media: MediaWidget(slotID: slot.id)
     case .quotas: QuotaWidget()
-    case .recorder: RecorderWidget()
-    case .monitorVolume: MonitorVolumeWidget()
+    case .callSound: CallSoundWidget()
     case .spacer: Color.clear
     default: TelemetryWidget(kind: slot.kind, slotID: slot.id)
     }

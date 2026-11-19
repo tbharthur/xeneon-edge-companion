@@ -16,105 +16,6 @@ enum TerminalSide: String, Codable, CaseIterable {
   case left, right
 }
 
-enum WidgetKind: String, Codable, CaseIterable, Identifiable {
-  /// `network` also pages to disk activity; `system` pages to top processes.
-  case clock, cpu, gpu, memory, network, sensors, battery, launcher, system, aiUsage, timer, volume
-  /// Keep-awake durations and a sleep button.
-  case sleep
-  /// Discord voice: on a call or not, and with a linked app, who is in it.
-  case discord
-  /// A web page (address in `AppSettings.webURL`).
-  case web
-  /// A photo, GIF or video on loop (file in `AppSettings.mediaItems`); any number may be placed.
-  case media
-  /// Every account from a local multi-account usage feed (`AppSettings.quotaFeedURL`).
-  case quotas
-  /// The local meeting recorder: record/stop, running time, transcription and hand-off status.
-  case recorder
-  /// The desk monitor's speaker volume and mute over DDC/CI, as a fader.
-  case monitorVolume
-  /// An empty cell for spacing; any number of them may be placed.
-  case spacer
-  var id: String { rawValue }
-
-  var allowsMultiple: Bool { self == .spacer || self == .media }
-
-  /// Kinds from earlier versions, folded into the current ones (nil: dropped).
-  static func migrating(_ raw: String) -> WidgetKind? {
-    if let kind = WidgetKind(rawValue: raw) { return kind }
-    switch raw {
-    case "disk": return .network
-    case "processes": return .system
-    case "claudeUsage", "codexUsage": return .aiUsage
-    default: return nil   // bluetooth: shown in the power widget now
-    }
-  }
-}
-
-/// One widget on a dashboard page.
-struct WidgetSlot: Codable, Equatable, Identifiable {
-  var id = UUID()
-  var kind: WidgetKind
-  var size: WidgetSize = .small
-
-  init(id: UUID = UUID(), kind: WidgetKind, size: WidgetSize = .small) {
-    self.id = id
-    self.kind = kind
-    self.size = size
-  }
-
-  private enum CodingKeys: String, CodingKey { case id, kind, size }
-
-  init(from decoder: Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    let raw = try c.decode(String.self, forKey: .kind)
-    guard let kind = WidgetKind.migrating(raw) else {
-      throw DecodingError.dataCorruptedError(forKey: .kind, in: c, debugDescription: "retired widget \(raw)")
-    }
-    self.kind = kind
-    id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
-    size = (try? c.decodeIfPresent(WidgetSize.self, forKey: .size)) ?? .small
-  }
-}
-
-/// A swipeable dashboard page; widgets pack into its two rows in order.
-struct DashboardPage: Codable, Equatable, Identifiable {
-  var id = UUID()
-  var slots: [WidgetSlot]
-
-  init(id: UUID = UUID(), slots: [WidgetSlot]) {
-    self.id = id
-    self.slots = slots
-  }
-
-  private enum CodingKeys: String, CodingKey { case id, slots }
-  private struct LenientSlot: Decodable {
-    let slot: WidgetSlot?
-    init(from decoder: Decoder) throws { slot = try? WidgetSlot(from: decoder) }
-  }
-
-  /// Skips retired widget kinds and duplicates instead of failing the whole layout.
-  init(from decoder: Decoder) throws {
-    let c = try decoder.container(keyedBy: CodingKeys.self)
-    id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
-    var seen = Set<WidgetKind>()
-    slots = ((try? c.decode([LenientSlot].self, forKey: .slots)) ?? []).compactMap(\.slot).filter { $0.kind.allowsMultiple || seen.insert($0.kind).inserted }
-  }
-
-  static let defaultPages: [DashboardPage] = [
-    DashboardPage(slots: [
-      WidgetSlot(kind: .clock, size: .tall),
-      WidgetSlot(kind: .network), WidgetSlot(kind: .cpu),
-      WidgetSlot(kind: .sensors), WidgetSlot(kind: .gpu),
-      WidgetSlot(kind: .battery), WidgetSlot(kind: .memory),
-      WidgetSlot(kind: .system), WidgetSlot(kind: .aiUsage),
-    ]),
-    DashboardPage(slots: [
-      WidgetSlot(kind: .launcher, size: .large),
-    ]),
-  ]
-}
-
 struct LauncherItem: Codable, Equatable, Identifiable {
   var id = UUID()
   var title: String
@@ -181,6 +82,8 @@ struct AppSettings: Codable, Equatable {
   /// Recorder widget: the pipeline script and the recording name. The output device is whatever the Mac uses by default.
   var recorderScript = "~/Dev/assistant/tools/meeting-recorder/record.sh"
   var recorderName = "local-meeting"
+  /// The Sonos room (as named in the Sonos app) whose speaker the calls-and-sound card controls.
+  var sonosRoom = "Office"
   /// Show each Mac notification banner across the dashboard for a moment.
   var notificationsEnabled = false
   /// Media widget files by slot id (uuidString).
@@ -216,15 +119,7 @@ struct AppSettings: Codable, Equatable {
     terminalWidth = v(.terminalWidth, terminalWidth)
     terminalFontSize = v(.terminalFontSize, terminalFontSize)
     terminalUseTmux = v(.terminalUseTmux, terminalUseTmux)
-    pages = v(.pages, pages)
-    // Retired kinds can map onto a widget that already exists (e.g. processes → system):
-    // keep the first occurrence across all pages, then drop pages left empty.
-    var seen = Set<WidgetKind>()
-    pages = pages.map { page in
-      var p = page
-      p.slots = page.slots.filter { $0.kind.allowsMultiple || seen.insert($0.kind).inserted }
-      return p
-    }.filter { !$0.slots.isEmpty }
+    pages = DashboardPage.normalized(v(.pages, pages))
     if pages.isEmpty { pages = DashboardPage.defaultPages }
     // Settings from before pages existed: keep the user's widgets on page 1 in column order.
     if (try? c.decodeIfPresent([DashboardPage].self, forKey: .pages)) == nil,
@@ -239,6 +134,7 @@ struct AppSettings: Codable, Equatable {
     quotaFeedURL = v(.quotaFeedURL, quotaFeedURL)
     recorderScript = v(.recorderScript, recorderScript)
     recorderName = v(.recorderName, recorderName)
+    sonosRoom = v(.sonosRoom, sonosRoom)
     mediaItems = v(.mediaItems, mediaItems)
     profiles = v(.profiles, profiles)
   }

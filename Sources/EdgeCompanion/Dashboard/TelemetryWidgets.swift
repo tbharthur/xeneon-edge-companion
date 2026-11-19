@@ -1,3 +1,4 @@
+import EdgeCore
 import SwiftUI
 
 /// Picks the widget for a telemetry kind. Each widget retains its metric while on screen,
@@ -17,7 +18,7 @@ struct TelemetryWidget: View {
     case .sensors: SensorsWidget(sensors: hub.sensors).retaining(.sensors)
     case .battery: BatteryWidget(battery: hub.battery, bluetooth: hub.bluetooth, sensors: hub.sensors).retaining(.battery).retaining(.bluetooth).retaining(.sensors)
     case .system: SystemWidget(id: slotID, system: hub.system, cpu: hub.cpu).retaining(.system).retaining(.cpu)
-    case .clock, .launcher, .aiUsage, .timer, .volume, .sleep, .discord, .web, .media, .quotas, .recorder, .monitorVolume, .spacer: EmptyView()
+    case .clock, .launcher, .aiUsage, .timer, .volume, .sleep, .discord, .web, .media, .quotas, .callSound, .spacer: EmptyView()
     }
   }
 }

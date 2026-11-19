@@ -44,6 +44,9 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSUIElement</key><true/>
   <key>ATSApplicationFontsPath</key><string>Fonts</string>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- The calls-and-sound card finds the Sonos speaker over Bonjour and sets its volume on the local network. -->
+  <key>NSLocalNetworkUsageDescription</key><string>Finds your Sonos speaker on the local network to show and change its volume on the Edge.</string>
+  <key>NSBonjourServices</key><array><string>_sonos._tcp</string></array>
   <key>NSAppleEventsUsageDescription</key><string>Shows what Apple Music is playing on the Edge, with its artwork and playback controls.</string>
   <key>NSHumanReadableCopyright</key><string>Unofficial companion app for the Corsair XENEON EDGE. MIT License.</string>
 </dict>

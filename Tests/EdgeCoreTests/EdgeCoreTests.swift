@@ -628,3 +628,188 @@ import Testing
     #expect(CallLabels.strings(in: table, keys: ["ANSWER", "MISSING"], languages: ["fr-FR"]).isEmpty)
   }
 }
+
+@Suite struct WidgetSizeCoveringTests {
+  @Test func mergedCardsCoverTheirCells() {
+    // Two tall cards side by side become one large one.
+    #expect(WidgetSize.covering([.tall, .tall]) == .large)
+    #expect(WidgetSize.covering([.small, .wide]) == .large)
+    #expect(WidgetSize.covering([.small, .small]) == .tall)
+    #expect(WidgetSize.covering([.wide]) == .wide)
+    #expect(WidgetSize.covering([.small]) == .small)
+    #expect(WidgetSize.covering([]) == nil)
+  }
+}
+
+@Suite struct CallCardLayoutTests {
+  @Test func designSizeMatchesTheMock() {
+    // A large slot on the 690-point split dashboard: 320 × 662, less 18 points of padding.
+    let l = CallCardLayout(width: 284, height: 626)
+    #expect(!l.side)
+    #expect(l.keyWidth == 136 && l.rowHeight == 104)
+    #expect(l.controls.height == 220)
+    #expect(l.sound.minY == 242 && l.sound.height == 384)
+    #expect(l.channelWidth(count: 2) == 136)
+    #expect(l.channelWidth(count: 3) == 88)
+    #expect(l.faderStrip(channels: 3) == (88, 384))
+    #expect(l.strip() == CallCardLayout.Strip(header: 52, fader: 244, muteKey: 72))
+    #expect(!l.micOnTop(channels: 3))
+  }
+
+  @Test func tallerCardsGiveTheSoundTheExtra() {
+    let l = CallCardLayout(width: 284, height: 800)
+    #expect(l.rowHeight == 104 && l.sound.height == 558)
+    #expect(l.strip().header == 52 && l.strip().muteKey == 72)
+  }
+
+  @Test func smallCardPutsTheMicAboveLevelsWithoutFaders() {
+    // A small slot (154 × 325 less padding): rows at their minimum, three strips would be 32
+    // wide, so the mic becomes a bar and the two speakers share the row below it.
+    let l = CallCardLayout(width: 118, height: 289)
+    #expect(l.rowHeight == CallCardLayout.minimumRow)
+    #expect(Double(l.sound.height) == 289 - 56 * 2 - 12 - 22)
+    #expect(l.micOnTop(channels: 3))
+    #expect(l.micBar == 52)
+    let strip = l.faderStrip(channels: 3)
+    #expect(strip.width == 53 && strip.height == 143 - 52 - 12)
+    let s = l.strip(height: strip.height)
+    // Too short for a fader: the level and Mute key fill the strip exactly, nothing spills.
+    #expect(s.fader == 0)
+    #expect(s.total == strip.height)
+    #expect(s.header >= 28 && s.muteKey >= 36)
+  }
+
+  @Test func tallNarrowCardKeepsFadersUnderTheMicBar() {
+    // A tall slot (154 × 662 less padding).
+    let l = CallCardLayout(width: 118, height: 626)
+    #expect(l.micOnTop(channels: 3) && l.micBar == 72)
+    let strip = l.faderStrip(channels: 3)
+    #expect(strip.height == 384 - 72 - 12)
+    let s = l.strip(height: strip.height)
+    #expect(s.fader >= CallCardLayout.minimumFader)
+    #expect(s.total == strip.height)
+  }
+
+  @Test func stripsNeverOverflow() {
+    for h in stride(from: 0.0, through: 700, by: 7) {
+      let s = CallCardLayout(width: 284, height: 626).strip(height: h)
+      #expect(s.total <= max(h, CallCardLayout.Strip.spacing), "height \(h)")
+      #expect(s.fader == 0 || s.fader >= CallCardLayout.minimumFader)
+    }
+  }
+
+  @Test func wideCardsPutTheSoundBeside() {
+    let l = CallCardLayout(width: 900, height: 289)
+    #expect(l.side)
+    #expect(Double(l.sound.minX) == Double(l.controls.width) + CallCardLayout.soundGap)
+    #expect(l.sound.height == 289)
+    #expect(l.rowHeight == 104)
+  }
+}
+
+@Suite struct SonosAudioTests {
+  @Test func readsTheRoomFromABonjourName() {
+    #expect(SonosAudio.room(inServiceName: "RINCON_000000000001@Office") == "Office")
+    #expect(SonosAudio.room(inServiceName: "RINCON_000000000002@Living Room") == "Living Room")
+    #expect(SonosAudio.room(inServiceName: "RINCON_000000000001") == nil)
+    let names = ["RINCON_A@Hall", "RINCON_B@Office", "RINCON_C@Den"]
+    #expect(SonosAudio.askingOrder(names, room: "office") == ["RINCON_B@Office", "RINCON_A@Hall", "RINCON_C@Den"])
+    #expect(SonosAudio.askingOrder(names, room: "Attic") == names)
+  }
+
+  /// A GetZoneGroupState reply: the topology arrives escaped inside the SOAP envelope.
+  static let topology = """
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetZoneGroupStateResponse xmlns:u="urn:schemas-upnp-org:service:ZoneGroupTopology:1"><ZoneGroupState>&lt;ZoneGroupState&gt;&lt;ZoneGroups&gt;\
+    &lt;ZoneGroup Coordinator=&quot;RINCON_A&quot; ID=&quot;RINCON_A:1&quot;&gt;&lt;ZoneGroupMember UUID=&quot;RINCON_A&quot; Location=&quot;http://10.0.0.21:1400/xml/device_description.xml&quot; ZoneName=&quot;Office&quot;/&gt;&lt;/ZoneGroup&gt;\
+    &lt;ZoneGroup Coordinator=&quot;RINCON_C&quot; ID=&quot;RINCON_C:2&quot;&gt;\
+    &lt;ZoneGroupMember UUID=&quot;RINCON_B&quot; Location=&quot;http://10.0.0.22:1400/xml/device_description.xml&quot; ZoneName=&quot;Patio&quot; Invisible=&quot;1&quot;/&gt;\
+    &lt;ZoneGroupMember UUID=&quot;RINCON_C&quot; Location=&quot;http://10.0.0.23:1400/xml/device_description.xml&quot; ZoneName=&quot;Patio&quot;&gt;&lt;Satellite UUID=&quot;RINCON_D&quot; Location=&quot;http://10.0.0.24:1400/xml/device_description.xml&quot; ZoneName=&quot;Patio&quot; Invisible=&quot;1&quot;/&gt;&lt;/ZoneGroupMember&gt;\
+    &lt;/ZoneGroup&gt;&lt;/ZoneGroups&gt;&lt;/ZoneGroupState&gt;</ZoneGroupState></u:GetZoneGroupStateResponse></s:Body></s:Envelope>
+    """
+
+  @Test func findsTheRoomsVisiblePlayer() {
+    let players = SonosAudio.players(zoneGroupState: Self.topology)
+    #expect(players.map(\.uuid) == ["RINCON_A", "RINCON_B", "RINCON_C"])
+    #expect(SonosAudio.rooms(players) == ["Office", "Patio"])
+    #expect(SonosAudio.player(inRoom: " office ", among: players)?.baseURL == URL(string: "http://10.0.0.21:1400"))
+    // A stereo pair is controlled through its visible player.
+    #expect(SonosAudio.player(inRoom: "Patio", among: players)?.uuid == "RINCON_C")
+    #expect(SonosAudio.player(inRoom: "Hall", among: players) == nil)
+    #expect(SonosAudio.player(inRoom: "", among: players) == nil)
+  }
+
+  @Test func buildsRenderingControlRequests() {
+    let base = URL(string: "http://10.0.0.21:1400")!
+    let r = SonosAudio.request(.setVolume(140), base: base)
+    #expect(r.url?.absoluteString == "http://10.0.0.21:1400/MediaRenderer/RenderingControl/Control")
+    #expect(r.httpMethod == "POST")
+    #expect(r.value(forHTTPHeaderField: "SOAPACTION") == "\"urn:schemas-upnp-org:service:RenderingControl:1#SetVolume\"")
+    let body = String(decoding: r.httpBody ?? Data(), as: UTF8.self)
+    // The speaker's own volume (Master channel), clamped to its 0...100 scale.
+    #expect(body.contains("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>100</DesiredVolume>"))
+    #expect(SonosAudio.envelope(.setMute(true)).contains("<DesiredMute>1</DesiredMute>"))
+    #expect(SonosAudio.request(.getZoneGroupState, base: base).url?.path == "/ZoneGroupTopology/Control")
+  }
+
+  @Test func readsVolumeAndMuteReplies() {
+    let volume = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><u:GetVolumeResponse xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><CurrentVolume>29</CurrentVolume></u:GetVolumeResponse></s:Body></s:Envelope>"
+    let mute = "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><u:GetMuteResponse xmlns:u=\"urn:schemas-upnp-org:service:RenderingControl:1\"><CurrentMute>1</CurrentMute></u:GetMuteResponse></s:Body></s:Envelope>"
+    #expect(SonosAudio.volume(inReply: volume) == 29)
+    #expect(SonosAudio.mute(inReply: mute) == true)
+    #expect(SonosAudio.mute(inReply: volume) == nil)
+    #expect(SonosAudio.volume(inReply: "<html>not found</html>") == nil)
+  }
+
+  @Test func levelsAreWholePercents() {
+    #expect(SonosAudio.percent(0.294) == 29)
+    #expect(SonosAudio.percent(1.3) == 100)
+    #expect(SonosAudio.percent(-0.2) == 0)
+    #expect(SonosAudio.fraction(29) == 0.29)
+  }
+}
+
+@Suite struct DashboardLayoutMigrationTests {
+  func load(_ json: String) throws -> [DashboardPage] {
+    DashboardPage.normalized(try JSONDecoder().decode([DashboardPage].self, from: Data(json.utf8)))
+  }
+
+  func kinds(_ pages: [DashboardPage]) -> [[String]] { pages.map { $0.slots.map { "\($0.kind.rawValue):\($0.size.rawValue)" } } }
+
+  let quotas = #"{"kind":"quotas","id":"861F652E-8411-4009-9B19-34530E7B5C08","size":"large"}"#
+  let recorder = #"{"kind":"recorder","id":"D1B0AD95-4078-4B8B-A11F-757A351FE691","size":"tall"}"#
+  let monitor = #"{"kind":"monitorVolume","id":"6923E17D-8936-43A8-A787-1E9E216EDF83","size":"tall"}"#
+
+  @Test func bothOldCardsOnOnePageBecomeOneLargeCard() throws {
+    let pages = try load(#"[{"id":"DBC80976-9B15-4863-919F-BD383F21F202","slots":[\#(quotas),\#(recorder),\#(monitor)]}]"#)
+    #expect(kinds(pages) == [["quotas:large", "callSound:large"]])
+    // It keeps the recorder's place and id.
+    #expect(pages[0].slots[1].id == UUID(uuidString: "D1B0AD95-4078-4B8B-A11F-757A351FE691"))
+    #expect(pages[0].id == UUID(uuidString: "DBC80976-9B15-4863-919F-BD383F21F202"))
+  }
+
+  @Test func oneOldCardKeepsItsSize() throws {
+    #expect(kinds(try load(#"[{"slots":[\#(quotas),\#(monitor)]}]"#)) == [["quotas:large", "callSound:tall"]])
+    #expect(kinds(try load(#"[{"slots":[\#(recorder)]}]"#)) == [["callSound:tall"]])
+  }
+
+  @Test func oldCardsOnDifferentPagesKeepTheFirst() throws {
+    let pages = try load(#"[{"slots":[\#(quotas),\#(recorder)]},{"slots":[\#(monitor)]}]"#)
+    // The second page held only the monitor card, now a duplicate, so the page goes.
+    #expect(kinds(pages) == [["quotas:large", "callSound:tall"]])
+  }
+
+  @Test func unknownAndMalformedSlotsAreSkipped() throws {
+    let pages = try load(#"[{"slots":[{"kind":"bluetooth"},{"kind":42,"size":"tall"},{"size":"small"},"junk",\#(recorder),{"kind":"monitorVolume","size":"sideways"}]}]"#)
+    // The malformed size falls back to small: tall + small make a large slot.
+    #expect(kinds(pages) == [["callSound:large"]])
+  }
+
+  @Test func loadingTwiceChangesNothing() throws {
+    let first = try load(#"[{"slots":[\#(quotas),\#(recorder),\#(monitor)]}]"#)
+    let again = DashboardPage.normalized(try JSONDecoder().decode([DashboardPage].self, from: JSONEncoder().encode(first)))
+    #expect(again == first)
+    // Reading the same old JSON again gives the same layout, ids included.
+    #expect(try load(#"[{"id":"DBC80976-9B15-4863-919F-BD383F21F202","slots":[\#(quotas),\#(recorder),\#(monitor)]}]"#)
+      == load(#"[{"id":"DBC80976-9B15-4863-919F-BD383F21F202","slots":[\#(quotas),\#(recorder),\#(monitor)]}]"#))
+  }
+}
