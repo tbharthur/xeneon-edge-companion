@@ -59,6 +59,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     statusMenu = StatusMenuController(app: self)
     requestPermissionsIfNeeded()
+    followLoginItem()
+  }
+
+  private static let loginItemPathKey = "loginItemPath"
+
+  /// The login item remembers where the app was when it was turned on. After the app moves (for
+  /// example from ~/Applications to /Applications), register it again from here so it still opens
+  /// at login. Runs once per location.
+  private func followLoginItem() {
+    let status = SMAppService.mainApp.status
+    let here = Bundle.main.bundlePath
+    let defaults = UserDefaults.standard
+    Log.info(.app, "login item: status \(status.rawValue), registered from \(defaults.string(forKey: Self.loginItemPathKey) ?? "unknown")")
+    guard status == .enabled, defaults.string(forKey: Self.loginItemPathKey) != here else { return }
+    do {
+      try SMAppService.mainApp.register()
+      defaults.set(here, forKey: Self.loginItemPathKey)
+      Log.info(.app, "login item: registered from \(here)")
+    } catch {
+      Log.error(.app, "login item: \(error.localizedDescription)")
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {
@@ -198,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     set {
       do {
         if newValue { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        UserDefaults.standard.set(newValue ? Bundle.main.bundlePath : nil, forKey: Self.loginItemPathKey)
       } catch {
         Log.error(.app, "login item: \(error.localizedDescription)")
       }

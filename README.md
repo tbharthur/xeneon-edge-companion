@@ -79,7 +79,7 @@ There are no prebuilt releases yet. Build it from source:
 git clone https://github.com/Seol-JY/xeneon-edge-companion.git
 cd xeneon-edge-companion
 scripts/make-cert.sh            # once: creates a local self-signed code-signing certificate
-scripts/build-app.sh --install  # builds, copies to ~/Applications and launches
+scripts/build-app.sh --install  # builds, copies to /Applications (~/Applications if not writable) and launches
 ```
 
 macOS ties privacy permissions to the code signature. With the local certificate they survive

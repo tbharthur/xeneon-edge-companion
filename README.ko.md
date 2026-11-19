@@ -76,7 +76,7 @@ macOS용 iCUE는 XENEON EDGE를 지원하지 않습니다. 터치가 다른 화�
 git clone https://github.com/Seol-JY/xeneon-edge-companion.git
 cd xeneon-edge-companion
 scripts/make-cert.sh            # 최초 1회: 로컬 자체 서명 인증서 생성
-scripts/build-app.sh --install  # 빌드 후 ~/Applications에 복사하고 실행
+scripts/build-app.sh --install  # 빌드 후 /Applications(쓸 수 없으면 ~/Applications)에 복사하고 실행
 ```
 
 macOS는 개인정보 권한을 코드 서명에 연결합니다. 로컬 인증서로 서명하면 다시 빌드해도 권한이

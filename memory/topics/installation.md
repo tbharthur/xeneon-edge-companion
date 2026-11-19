@@ -1,9 +1,10 @@
 # Installation and local fork
 
-Updated: 2026-10-27 (archived session).
+Updated: 2026-11-19.
 
 - Local source: `/Users/arthur/Dev/xeneon-edge-companion`; Arthur's maintained fork is `tbharthur/xeneon-edge-companion`, with upstream `Seol-JY/xeneon-edge-companion`. The local checkout uses remote `fork` for Arthur's repo and `origin` for upstream.
 - EdgeCompanion was built from source, installed and launched on the Mac mini. Keep the local source available for rebuilding customizations and future updates. The fork was added to the repo cleanup configuration as maintained.
+- Installed at /Applications/EdgeCompanion.app since 2026-11-19 (`scripts/build-app.sh --install`; it falls back to ~/Applications only where /Applications isn't writable, and removes an old ~/Applications copy). Moved from ~/Applications because macOS Local Network privacy resolves apps as the console user, which on this Mac can be another logged-in account that cannot read Arthur's home folder; see [custom widgets](dashboard-widgets.md). Input Monitoring and Accessibility follow the bundle identifier and signing certificate, not the path, and kept working after the move (touch seized, Accessibility trusted). The login item records the app's location; the app re-registers it once from a new location at launch (it now points at /Applications).
 - The app lives in the menu bar. Touch requires approval under System Settings → Privacy & Security → Input Monitoring and Accessibility; the transcript does not explicitly confirm both approvals.
 - The installation-time source review reported no usage telemetry and networking only for enabled features such as web, Discord or Apple Music widgets.
 - Arthur requested complete removal of Corsair iCUE. The session reported its app, driver, two background services, remaining user/admin data, installed lighting profiles and old installer copies removed, including permanent deletion of copies from iCloud Downloads/trash. The Edge continued working as a regular display.

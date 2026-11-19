@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Builds dist/EdgeCompanion.app (release) and signs it.
 #   scripts/build-app.sh            build + sign
-#   scripts/build-app.sh --install  also copy to ~/Applications and relaunch
+#   scripts/build-app.sh --install  also copy to /Applications (or ~/Applications) and relaunch
 set -euo pipefail
 cd "${0:A:h}/.."
 
@@ -63,11 +63,21 @@ fi
 codesign --verify --strict "$APP" && echo "Built $APP"
 
 if [[ "${1:-}" == "--install" ]]; then
-  DEST="$HOME/Applications/$APP_NAME.app"
-  mkdir -p "$HOME/Applications"
+  # /Applications when this account may write there (admins can, without sudo), else ~/Applications.
+  # Local Network privacy looks the app up as whichever user macOS counts as the console user; with
+  # another account logged in at the same time, that user may be unable to read this one's home
+  # folder, and the app then never prompts nor appears under Privacy & Security → Local Network.
+  if [[ -w /Applications ]]; then DIR=/Applications; else DIR="$HOME/Applications"; fi
+  DEST="$DIR/$APP_NAME.app"
+  mkdir -p "$DIR"
   pkill -x "$APP_NAME" 2>/dev/null && sleep 1 || true
   rm -rf "$DEST"
   cp -R "$APP" "$DEST"
+  # One installed copy only, so LaunchServices and the privacy settings find this one.
+  if [[ "$DIR" == /Applications && -d "$HOME/Applications/$APP_NAME.app" ]]; then
+    rm -rf "$HOME/Applications/$APP_NAME.app"
+  fi
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
   open "$DEST"
   echo "Installed and launched $DEST"
 fi
