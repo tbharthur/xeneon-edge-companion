@@ -49,6 +49,49 @@ public enum SonosAudio {
     return mine + names.filter { !mine.contains($0) }
   }
 
+  // MARK: Finding a player without Bonjour
+
+  /// Addresses to ask, in order, when Bonjour can't be used: the hosts of the Mac's own IPv4
+  /// subnet (the /24 around it when the subnet is larger), without the Mac itself, the network
+  /// and broadcast addresses. Only private (RFC 1918) networks are swept, so traffic stays on
+  /// the local segment. Nil for anything else.
+  public static func subnetHosts(address: String, netmask: String) -> [String]? {
+    guard let a = ipv4(address), let m = ipv4(netmask), isPrivate(a) else { return nil }
+    // Never sweep more than a /24.
+    let mask = m | 0xFFFF_FF00 == m ? m : 0xFFFF_FF00
+    let network = a & mask
+    let broadcast = network | ~mask
+    guard broadcast > network + 1 else { return [] }
+    return (network + 1 ..< broadcast).filter { $0 != a }.map(dotted)
+  }
+
+  /// Player base URLs worth trying first: the remembered ones, then the rest of the sweep,
+  /// each address once.
+  public static func sweepOrder(remembered: [String], hosts: [String]) -> [String] {
+    var seen = Set<String>()
+    let rememberedHosts = remembered.compactMap { URL(string: $0)?.host }
+    return (rememberedHosts + hosts).filter { seen.insert($0).inserted }
+  }
+
+  static func ipv4(_ s: String) -> UInt32? {
+    let parts = s.split(separator: ".")
+    guard parts.count == 4 else { return nil }
+    var v: UInt32 = 0
+    for p in parts {
+      guard let n = UInt8(p) else { return nil }
+      v = v << 8 | UInt32(n)
+    }
+    return v
+  }
+
+  static func dotted(_ v: UInt32) -> String {
+    [24, 16, 8, 0].map { String((v >> $0) & 0xFF) }.joined(separator: ".")
+  }
+
+  static func isPrivate(_ a: UInt32) -> Bool {
+    a >> 24 == 10 || a >> 20 == 0xAC1 || a >> 16 == 0xC0A8
+  }
+
   // MARK: Topology
 
   /// Players listed in a GetZoneGroupState reply (the envelope, or the decoded state itself).

@@ -760,6 +760,28 @@ import Testing
     #expect(SonosAudio.volume(inReply: "<html>not found</html>") == nil)
   }
 
+  @Test func sweepsOnlyTheMacsOwnPrivateSubnet() {
+    let hosts = SonosAudio.subnetHosts(address: "10.0.0.5", netmask: "255.255.255.0")
+    #expect(hosts?.count == 253)
+    #expect(hosts?.first == "10.0.0.1" && hosts?.last == "10.0.0.254")
+    #expect(hosts?.contains("10.0.0.5") == false)
+    // A larger subnet is narrowed to the /24 around the Mac.
+    let wide = SonosAudio.subnetHosts(address: "172.16.4.20", netmask: "255.255.0.0")
+    #expect(wide?.count == 253 && wide?.first == "172.16.4.1")
+    // A smaller one is kept as it is.
+    #expect(SonosAudio.subnetHosts(address: "10.0.0.130", netmask: "255.255.255.192") == (129 ... 190).filter { $0 != 130 }.map { "10.0.0.\($0)" })
+    // Public, malformed and tunnel-style /32 addresses are not swept.
+    #expect(SonosAudio.subnetHosts(address: "8.8.8.8", netmask: "255.255.255.0") == nil)
+    #expect(SonosAudio.subnetHosts(address: "10.0.0", netmask: "255.255.255.0") == nil)
+    #expect(SonosAudio.subnetHosts(address: "100.64.0.1", netmask: "255.255.255.0") == nil)
+    #expect(SonosAudio.subnetHosts(address: "10.0.0.7", netmask: "255.255.255.255") == [])
+  }
+
+  @Test func remembersPlayersFirst() {
+    let order = SonosAudio.sweepOrder(remembered: ["http://10.0.0.21:1400", "http://10.0.0.22:1400"], hosts: ["10.0.0.1", "10.0.0.21", "10.0.0.2"])
+    #expect(order == ["10.0.0.21", "10.0.0.22", "10.0.0.1", "10.0.0.2"])
+  }
+
   @Test func levelsAreWholePercents() {
     #expect(SonosAudio.percent(0.294) == 29)
     #expect(SonosAudio.percent(1.3) == 100)
