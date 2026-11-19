@@ -18,11 +18,13 @@ public struct SonosPlayer: Equatable, Sendable {
     self.invisible = invisible
   }
 
-  /// "http://10.0.0.21:1400", where the player's control endpoints live.
+  /// "http://10.0.0.21:1400", where the player's control endpoints live. Nil unless the topology
+  /// gave a plain private-network IPv4 address on the control port (see `controlBase`), so a
+  /// device faking an answer can't send the app's requests anywhere else.
   public var baseURL: URL? {
-    guard let url = URL(string: location), let scheme = url.scheme, let host = url.host else { return nil }
-    return URL(string: "\(scheme)://\(host):\(url.port ?? 1400)")
+    SonosAudio.controlBase(URL(string: location))
   }
+
 }
 
 /// Pure rules for controlling one Sonos speaker on the local network through its own UPnP
@@ -65,12 +67,28 @@ public enum SonosAudio {
     return (network + 1 ..< broadcast).filter { $0 != a }.map(dotted)
   }
 
-  /// Player base URLs worth trying first: the remembered ones, then the rest of the sweep,
-  /// each address once.
-  public static func sweepOrder(remembered: [String], hosts: [String]) -> [String] {
+  /// The addresses to sweep for all of the Mac's interfaces (Ethernet and Wi-Fi may both be up,
+  /// on the same subnet or on different ones): each interface's hosts in turn, each address
+  /// once, none of the Mac's own.
+  public static func sweepHosts(interfaces: [(address: String, netmask: String)]) -> [String] {
+    let own = Set(interfaces.map(\.address))
     var seen = Set<String>()
-    let rememberedHosts = remembered.compactMap { URL(string: $0)?.host }
-    return (rememberedHosts + hosts).filter { seen.insert($0).inserted }
+    return interfaces.flatMap { subnetHosts(address: $0.address, netmask: $0.netmask) ?? [] }
+      .filter { !own.contains($0) && seen.insert($0).inserted }
+  }
+
+  /// `url` reduced to "http://<address>:1400" when it names a player the app may talk to: http,
+  /// a dotted private IPv4 address (as the sweep is limited to), and the control port.
+  public static func controlBase(_ url: URL?) -> URL? {
+    guard let url, url.scheme == "http", let host = url.host, let a = ipv4(host), isPrivate(a),
+          (url.port ?? 80) == controlPort else { return nil }
+    return URL(string: "http://\(dotted(a)):\(controlPort)")
+  }
+
+  /// Whether a topology answer settles the search for `room`: it must list the room's player. An
+  /// answer from another Sonos system on the network only adds to the rooms found.
+  public static func settles(_ players: [SonosPlayer], room: String) -> Bool {
+    player(inRoom: room, among: players)?.baseURL != nil
   }
 
   static func ipv4(_ s: String) -> UInt32? {

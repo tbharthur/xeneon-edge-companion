@@ -777,9 +777,37 @@ import Testing
     #expect(SonosAudio.subnetHosts(address: "10.0.0.7", netmask: "255.255.255.255") == [])
   }
 
-  @Test func remembersPlayersFirst() {
-    let order = SonosAudio.sweepOrder(remembered: ["http://10.0.0.21:1400", "http://10.0.0.22:1400"], hosts: ["10.0.0.1", "10.0.0.21", "10.0.0.2"])
-    #expect(order == ["10.0.0.21", "10.0.0.22", "10.0.0.1", "10.0.0.2"])
+  @Test func sweepsEachInterfaceOnce() {
+    // Ethernet and Wi-Fi on the same subnet: one pass, neither of the Mac's addresses.
+    let same = SonosAudio.sweepHosts(interfaces: [("10.0.0.5", "255.255.255.0"), ("10.0.0.6", "255.255.255.0")])
+    #expect(same.count == 252 && !same.contains("10.0.0.5") && !same.contains("10.0.0.6"))
+    // On different subnets: the first interface's hosts, then the second's.
+    let two = SonosAudio.sweepHosts(interfaces: [("10.0.1.5", "255.255.255.0"), ("10.0.2.5", "255.255.255.0"), ("8.8.8.8", "255.255.255.0")])
+    #expect(two.count == 506 && two.first == "10.0.1.1" && two.last == "10.0.2.254")
+  }
+
+  @Test func onlyPrivatePlayerAddressesAreUsed() {
+    func base(_ s: String) -> String? { SonosAudio.controlBase(URL(string: s))?.absoluteString }
+    #expect(base("http://10.0.0.21:1400/xml/device_description.xml") == "http://10.0.0.21:1400")
+    #expect(base("http://192.168.7.3:1400") == "http://192.168.7.3:1400")
+    #expect(base("http://172.20.0.9:1400/x") == "http://172.20.0.9:1400")
+    // A public address, a name, another port or scheme: refused.
+    #expect(base("http://8.8.8.8:1400/xml") == nil)
+    #expect(base("http://example.com:1400/xml") == nil)
+    #expect(base("http://10.0.0.21:8080/xml") == nil)
+    #expect(base("https://10.0.0.21:1400/xml") == nil)
+    #expect(base("http://10.0.0.21/xml") == nil)
+    let fake = SonosPlayer(uuid: "X", room: "Office", location: "http://203.0.113.9:1400/xml", invisible: false)
+    #expect(fake.baseURL == nil)
+  }
+
+  @Test func onlyAnAnswerListingTheRoomEndsTheSearch() {
+    let mine = SonosAudio.players(zoneGroupState: Self.topology)
+    let other = [SonosPlayer(uuid: "Y", room: "Lobby", location: "http://10.0.0.40:1400/xml", invisible: false)]
+    #expect(SonosAudio.settles(mine, room: "Office"))
+    #expect(!SonosAudio.settles(other, room: "Office"))
+    // The room's player at an address the app won't use doesn't settle it either.
+    #expect(!SonosAudio.settles([SonosPlayer(uuid: "Z", room: "Office", location: "http://8.8.8.8:1400/xml", invisible: false)], room: "Office"))
   }
 
   @Test func levelsAreWholePercents() {

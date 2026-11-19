@@ -84,9 +84,6 @@ struct AppSettings: Codable, Equatable {
   var recorderName = "local-meeting"
   /// The Sonos room (as named in the Sonos app) whose speaker the calls-and-sound card controls.
   var sonosRoom = "Office"
-  /// The Sonos household's player addresses as last seen ("http://<address>:1400"), learned at run
-  /// time so the next search can ask one of them first.
-  var sonosPlayers: [String] = []
   /// Show each Mac notification banner across the dashboard for a moment.
   var notificationsEnabled = false
   /// Media widget files by slot id (uuidString).
@@ -138,7 +135,6 @@ struct AppSettings: Codable, Equatable {
     recorderScript = v(.recorderScript, recorderScript)
     recorderName = v(.recorderName, recorderName)
     sonosRoom = v(.sonosRoom, sonosRoom)
-    sonosPlayers = v(.sonosPlayers, sonosPlayers)
     mediaItems = v(.mediaItems, mediaItems)
     profiles = v(.profiles, profiles)
   }

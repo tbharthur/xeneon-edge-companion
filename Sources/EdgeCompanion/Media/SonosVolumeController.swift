@@ -43,6 +43,8 @@ final class SonosVolumeController: ObservableObject {
   private var lastSweep = Date.distantPast
   private var lastTopology = Date.distantPast
   private var misses = 0
+  /// macOS refused a plain local connection; shown until a request to a player succeeds.
+  private var localNetworkRefused = false
 
   private static let pollSeconds: TimeInterval = 3
   private static let settleSeconds: TimeInterval = 2.5
@@ -185,15 +187,15 @@ final class SonosVolumeController: ObservableObject {
         lastTopology = Date()
         let sweep = Date().timeIntervalSince(lastSweep) > Self.sweepSeconds
         if sweep { lastSweep = Date() }
-        let found = await Self.find(room: room, remembered: SettingsStore.shared.settings.sonosPlayers, sweep: sweep, session: session)
+        // The sweep checks this between batches: stop once the card is hidden or the room changes.
+        let keepGoing: @Sendable () async -> Bool = { await SonosVolumeController.shared.stillWanted(room) }
+        let found = await Self.find(room: room, remembered: Self.rememberedPlayers, sweep: sweep, session: session, keepGoing: keepGoing)
         guard room == self.room else { return finishStale() }
         if !found.rooms.isEmpty { rooms = found.rooms }
-        remember(found.players, room: room)
-        if found.denied {
-          reading = false
-          if status != .denied { Log.error(.dashboard, "sonos: local network access is not allowed") }
-          forgetSpeaker(status: .denied)
-          return
+        if found.player != nil { remember(found.players, room: room) }
+        if let refused = found.refused {
+          if refused, !localNetworkRefused { Log.error(.dashboard, "sonos: local network access is not allowed") }
+          localNetworkRefused = refused
         }
         target = found.player?.baseURL
         if let player = found.player { Log.info(.dashboard, "sonos: \(room) is \(player.location)") }
@@ -206,7 +208,7 @@ final class SonosVolumeController: ObservableObject {
           guard room == self.room else { return finishStale() }
           if !players.isEmpty {
             rooms = SonosAudio.rooms(players)
-            remember(players, room: room)
+            if SonosAudio.settles(players, room: room) { remember(players, room: room) }
             if SonosAudio.player(inRoom: room, among: players)?.baseURL != known { target = nil }
           }
         }
@@ -223,17 +225,26 @@ final class SonosVolumeController: ObservableObject {
     }
   }
 
-  /// Keeps the household's player addresses (the room's own first), so the next search can ask
-  /// one of them for the rooms instead of looking through the network.
+  /// Keeps the player addresses of the household that has the room (the room's own first), so
+  /// the next search can ask one of them instead of looking through the network. Stored on its
+  /// own, outside the app settings, as it changes by itself.
   private func remember(_ players: [SonosPlayer], room: String) {
     let mine = SonosAudio.player(inRoom: room, among: players)
     let bases = ([mine].compactMap { $0 } + players.filter { !$0.invisible })
       .compactMap { $0.baseURL?.absoluteString }
     var seen = Set<String>()
     let list = bases.filter { seen.insert($0).inserted }
-    guard !list.isEmpty, list != SettingsStore.shared.settings.sonosPlayers else { return }
-    SettingsStore.shared.settings.sonosPlayers = list
+    guard !list.isEmpty, list != Self.rememberedPlayers else { return }
+    UserDefaults.standard.set(list, forKey: Self.rememberedKey)
   }
+
+  nonisolated private static let rememberedKey = "sonosPlayers"
+  nonisolated static var rememberedPlayers: [String] {
+    UserDefaults.standard.stringArray(forKey: rememberedKey) ?? []
+  }
+
+  /// The card is on screen and still shows `room`.
+  func stillWanted(_ room: String) -> Bool { users > 0 && self.room == room }
 
   /// A read for a room that is no longer the chosen one: drop it.
   private func finishStale() {
@@ -257,13 +268,15 @@ final class SonosVolumeController: ObservableObject {
     guard let target, let reply else {
       misses += 1
       if target == nil || misses >= Self.missLimit {
-        // Asleep, off the network or moved: search again (after a pause) and show it calmly.
-        forgetSpeaker(status: .unavailable)
+        // Asleep, off the network or moved: search again (after a pause) and show it calmly;
+        // unless macOS refuses the app the local network, which stays shown until it doesn't.
+        forgetSpeaker(status: localNetworkRefused ? .denied : .unavailable)
       }
       return
     }
     base = target
     misses = 0
+    localNetworkRefused = false
     // A change made while the read was in flight wins over what the read saw.
     guard Date().timeIntervalSince(lastChange) > Self.settleSeconds else { return }
     level = SonosAudio.fraction(reply.volume)
@@ -284,97 +297,117 @@ final class SonosVolumeController: ObservableObject {
   }
 
   struct Search {
+    /// The room's player, from an answer that listed it.
     var player: SonosPlayer?
+    /// Every room any answer listed.
     var rooms: [String] = []
-    /// Every player the topology listed.
+    /// The players of the household that has the room.
     var players: [SonosPlayer] = []
-    /// macOS refuses the app the local network outright.
-    var denied = false
+    /// Whether macOS refuses plain local connections; nil when this search didn't check.
+    var refused: Bool?
+
+    mutating func add(_ answer: [SonosPlayer], room: String) {
+      rooms = Array(Set(rooms + SonosAudio.rooms(answer))).sorted()
+      if player == nil, SonosAudio.settles(answer, room: room) {
+        player = SonosAudio.player(inRoom: room, among: answer)
+        players = answer
+      }
+    }
   }
 
-  /// Finds the room's player. Any one player can give the household's topology, which names
-  /// every room with its player's address, so the search only has to reach one: first the
-  /// players remembered from last time, then Bonjour, then (no more than every two minutes)
-  /// each address of the Mac's own subnet in turn. Bonjour needs macOS's Local Network
-  /// permission for multicast; plain requests to a speaker's address do not, so the last two
-  /// steps keep the strip working when Bonjour is refused.
-  nonisolated static func find(room: String, remembered: [String], sweep: Bool, session: URLSession) async -> Search {
-    for base in remembered.prefix(8).compactMap(URL.init(string:)) {
-      if let found = await topology(at: base, room: room, session: session) { return found }
+  /// Finds the room's player. Any one player can give its household's topology, which names
+  /// every room with its player's address, so the search only has to reach one that lists the
+  /// room: first the players remembered from last time, then Bonjour, then (no more than every
+  /// two minutes) each address of the Mac's own subnet in turn. An answer that doesn't list the
+  /// room (another Sonos system) only adds to the rooms found. Bonjour needs macOS's Local
+  /// Network permission for multicast; plain requests to a speaker's address do not, so the
+  /// other two steps keep the strip working when Bonjour is refused.
+  nonisolated static func find(room: String, remembered: [String], sweep: Bool, session: URLSession,
+                               keepGoing: @escaping @Sendable () async -> Bool) async -> Search {
+    var search = Search()
+    for base in remembered.prefix(8).compactMap({ SonosAudio.controlBase(URL(string: $0)) }) {
+      guard let answer = await topology(at: base, session: session) else { continue }
+      search.refused = false
+      search.add(answer, room: room)
+      if search.player != nil { return search }
     }
     let (services, bonjourDenied) = await browse(timeout: 2)
     let names = SonosAudio.askingOrder(services.map(\.name), room: room)
     for name in names.prefix(3) {
       guard let endpoint = services.first(where: { $0.name == name })?.endpoint,
             let host = await resolve(endpoint, timeout: 2),
-            let base = URL(string: "http://\(host):\(SonosAudio.controlPort)"),
-            let found = await topology(at: base, room: room, session: session) else { continue }
-      return found
+            let base = SonosAudio.controlBase(URL(string: "http://\(host):\(SonosAudio.controlPort)")),
+            let answer = await topology(at: base, session: session) else { continue }
+      search.refused = false
+      search.add(answer, room: room)
+      if search.player != nil { return search }
     }
-    guard sweep else { return Search() }
-    let hosts = SonosAudio.sweepOrder(remembered: [], hosts: subnetHosts())
-    if bonjourDenied, let first = hosts.first, await unicastDenied(to: first) { return Search(denied: true) }
-    if let found = await sweepSubnet(hosts, room: room) { return found }
-    return Search()
+    guard sweep, await keepGoing() else { return search }
+    let hosts = SonosAudio.sweepHosts(interfaces: interfaceSubnets())
+    if bonjourDenied, search.refused == nil, let first = hosts.first {
+      search.refused = await unicastDenied(to: first)
+      if search.refused == true { return search }
+    }
+    await sweepSubnet(hosts, room: room, into: &search, keepGoing: keepGoing)
+    return search
   }
 
-  /// The household's topology from the player at `base`, if one answers there.
-  nonisolated static func topology(at base: URL, room: String, session: URLSession) async -> Search? {
+  /// The players listed in the topology from `base`, if a player answers there.
+  nonisolated static func topology(at base: URL, session: URLSession) async -> [SonosPlayer]? {
     guard let xml = try? await call(.getZoneGroupState, base: base, session: session) else { return nil }
     let players = SonosAudio.players(zoneGroupState: xml)
-    guard !players.isEmpty else { return nil }
-    return Search(player: SonosAudio.player(inRoom: room, among: players), rooms: SonosAudio.rooms(players), players: players)
+    return players.isEmpty ? nil : players
   }
 
-  /// Asks each address for the topology, a few at a time with a short timeout, and stops at the
-  /// first player that answers. Requests go only to the Mac's own subnet.
-  nonisolated static func sweepSubnet(_ hosts: [String], room: String) async -> Search? {
+  /// Asks each address for the topology, 16 at a time with a short timeout, until an answer lists
+  /// the room. Between batches it stops if `keepGoing` says so. Requests go only to the Mac's own
+  /// private subnets.
+  nonisolated static func sweepSubnet(_ hosts: [String], room: String, into search: inout Search,
+                                      keepGoing: @escaping @Sendable () async -> Bool) async {
     let c = URLSessionConfiguration.ephemeral
     c.timeoutIntervalForRequest = 1
     c.timeoutIntervalForResource = 2
     c.waitsForConnectivity = false
     let quick = URLSession(configuration: c)
     defer { quick.invalidateAndCancel() }
-    return await withTaskGroup(of: Search?.self) { group in
-      var next = hosts.makeIterator()
-      func add() -> Bool {
-        guard let host = next.next(), let base = URL(string: "http://\(host):\(SonosAudio.controlPort)") else { return false }
-        group.addTask { await topology(at: base, room: room, session: quick) }
-        return true
-      }
-      for _ in 0 ..< 16 { _ = add() }
-      while let result = await group.next() {
-        if let result {
-          group.cancelAll()
-          return result
+    let batch = 16
+    var start = 0
+    while start < hosts.count, search.player == nil {
+      if start > 0, !(await keepGoing()) { return }
+      let slice = hosts[start ..< min(start + batch, hosts.count)]
+      start += batch
+      let answers = await withTaskGroup(of: [SonosPlayer]?.self) { group in
+        for host in slice {
+          guard let base = SonosAudio.controlBase(URL(string: "http://\(host):\(SonosAudio.controlPort)")) else { continue }
+          group.addTask { await topology(at: base, session: quick) }
         }
-        _ = add()
+        var all: [[SonosPlayer]] = []
+        for await answer in group { if let answer { all.append(answer) } }
+        return all
       }
-      return nil
+      for answer in answers {
+        search.refused = false
+        search.add(answer, room: room)
+      }
     }
   }
 
-  /// IPv4 addresses on the Mac's own Ethernet and Wi-Fi subnets, private networks only.
-  nonisolated static func subnetHosts() -> [String] {
+  /// The IPv4 address and netmask of each Ethernet or Wi-Fi interface that is up.
+  nonisolated static func interfaceSubnets() -> [(address: String, netmask: String)] {
     var list: UnsafeMutablePointer<ifaddrs>?
     guard getifaddrs(&list) == 0, let start = list else { return [] }
     defer { freeifaddrs(start) }
-    var hosts: [String] = []
-    var seen = Set<String>()
-    for i in sequence(first: start, next: { $0.pointee.ifa_next }) {
+    func dotted(_ sa: UnsafeMutablePointer<sockaddr>) -> String {
+      sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { String(cString: inet_ntoa($0.pointee.sin_addr)) }
+    }
+    return sequence(first: start, next: { $0.pointee.ifa_next }).compactMap { i in
       let flags = Int32(i.pointee.ifa_flags)
       guard String(cString: i.pointee.ifa_name).hasPrefix("en"),
             flags & IFF_UP != 0, flags & IFF_RUNNING != 0, flags & IFF_BROADCAST != 0,
             let addr = i.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET),
-            let mask = i.pointee.ifa_netmask else { continue }
-      func dotted(_ sa: UnsafeMutablePointer<sockaddr>) -> String {
-        sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { String(cString: inet_ntoa($0.pointee.sin_addr)) }
-      }
-      for host in SonosAudio.subnetHosts(address: dotted(addr), netmask: dotted(mask)) ?? [] where seen.insert(host).inserted {
-        hosts.append(host)
-      }
+            let mask = i.pointee.ifa_netmask else { return nil }
+      return (dotted(addr), dotted(mask))
     }
-    return hosts
   }
 
   /// Whether macOS refuses the app plain connections on the local network too (the documented
