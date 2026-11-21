@@ -125,8 +125,10 @@ final class PanelEventSink {
 
   private func hitView(at p: CGPoint, in window: NSWindow) -> NSView? {
     guard let content = window.contentView else { return nil }
-    let local = content.convert(windowPoint(p, in: window), from: nil)
-    return content.hitTest(local)
+    // hitTest takes a point in the receiver's superview. The SwiftUI content view is flipped, so
+    // its own coordinates would mirror the point top to bottom and pick the wrong control.
+    let w = windowPoint(p, in: window)
+    return content.hitTest(content.superview?.convert(w, from: nil) ?? w)
   }
 
   private var primaryScreenHeight: CGFloat {
