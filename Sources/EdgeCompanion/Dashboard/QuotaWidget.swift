@@ -14,18 +14,23 @@ struct QuotaWidget: View {
         // Wide enough for the email and its status on one line; otherwise the status goes under it.
         let oneLine = geo.size.width >= 420
         let rowH = Self.rowHeight(groups, height: geo.size.height, oneLine: oneLine)
+        let compact = !oneLine && rowH < 40
         VStack(alignment: .leading, spacing: Self.sectionGap) {
           header.frame(height: Self.headerHeight)
           if groups.isEmpty {
             Text(emptyText).font(Theme.text(16, weight: .medium)).foregroundStyle(Theme.textTertiary)
               .frame(maxWidth: .infinity, maxHeight: .infinity)
           } else {
-            ForEach(groups, id: \.bucket) { group in
-              VStack(alignment: .leading, spacing: Self.rowGap) {
-                sectionLabel(group.bucket, group.accounts).frame(height: Self.labelHeight)
-                ForEach(group.accounts) { account in
-                  QuotaRow(account: account, now: service.now, oneLine: oneLine)
-                    .frame(width: geo.size.width, height: rowH)
+            ScrollView(.vertical, showsIndicators: false) {
+              VStack(alignment: .leading, spacing: Self.sectionGap) {
+                ForEach(groups, id: \.bucket) { group in
+                  VStack(alignment: .leading, spacing: Self.rowGap) {
+                    sectionLabel(group.bucket, group.accounts).frame(height: Self.labelHeight)
+                    ForEach(group.accounts) { account in
+                      QuotaRow(account: account, now: service.now, oneLine: oneLine, compact: compact)
+                        .frame(width: geo.size.width, height: rowH)
+                    }
+                  }
                 }
               }
             }
@@ -39,9 +44,9 @@ struct QuotaWidget: View {
   }
 
   private static let headerHeight: CGFloat = 24
-  private static let sectionGap: CGFloat = 10
-  private static let rowGap: CGFloat = 5
-  private static let labelHeight: CGFloat = 14
+  private static let sectionGap: CGFloat = 8
+  private static let rowGap: CGFloat = 4
+  private static let labelHeight: CGFloat = 13
 
   /// Rows share the height left after the header and group labels, within readable limits.
   static func rowHeight(_ groups: [(bucket: QuotaBucket, accounts: [QuotaAccountView])], height: CGFloat, oneLine: Bool) -> CGFloat {
@@ -49,7 +54,7 @@ struct QuotaWidget: View {
     guard rows > 0 else { return 44 }
     let fixed = headerHeight + CGFloat(groups.count) * (sectionGap + labelHeight) + CGFloat(rows) * rowGap
     let share = floor((height - fixed) / CGFloat(rows))
-    return min(max(share, oneLine ? 30 : 40), oneLine ? 48 : 58)
+    return min(max(share, oneLine ? 30 : 34), oneLine ? 48 : 58)
   }
 
   private func sectionLabel(_ bucket: QuotaBucket, _ accounts: [QuotaAccountView]) -> some View {
@@ -57,6 +62,7 @@ struct QuotaWidget: View {
     case .ultra: "Claude Ultra"
     case .team: accounts.allSatisfy { $0.plan?.localizedCaseInsensitiveContains("team") == true } ? "Claude Team" : "Claude"
     case .codex: "Codex"
+    case .gemini: "Gemini"
     }
     return Text(title.uppercased()).font(Theme.text(11, weight: .bold)).tracking(0.8).foregroundStyle(Theme.textTertiary)
       .lineLimit(1)
@@ -106,6 +112,8 @@ private struct QuotaRow: View {
   let now: Date
   /// Email and status side by side; otherwise the status sits under the email.
   let oneLine: Bool
+  /// Tighter vertical type when many accounts share a tall narrow card.
+  let compact: Bool
 
   var body: some View {
     let headline = account.headline
@@ -120,7 +128,7 @@ private struct QuotaRow: View {
       } else {
         // Two lines that share a baseline grid: status with the return day and time on top,
         // the email with the countdown under it.
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: compact ? 1 : 2) {
           HStack(alignment: .firstTextBaseline, spacing: 6) {
             status(headline)
             Spacer(minLength: 6)
@@ -142,30 +150,32 @@ private struct QuotaRow: View {
   /// Always the same size; a name too long for the row is shortened in the middle.
   private var email: some View {
     Text(account.displayName)
-      .font(Theme.text(13.5, weight: .semibold))
+      .font(Theme.text(compact ? 12 : 13.5, weight: .semibold))
       .foregroundStyle(Theme.textPrimary)
       .lineLimit(1).truncationMode(.middle)
   }
 
   @ViewBuilder
   private func status(_ headline: QuotaHeadline) -> some View {
+    let primarySize: CGFloat = compact ? 13.5 : 15
+    let secondarySize: CGFloat = compact ? 12.5 : 14
     switch headline {
     case let .ready(used):
       HStack(spacing: 6) {
-        Text(tr("사용 가능", "Ready")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.battery)
+        Text(tr("사용 가능", "Ready")).font(Theme.text(primarySize, weight: .semibold)).foregroundStyle(Theme.battery)
         if let used {
           Text(tr("\(Int(used.rounded()))% 사용", "\(Int(used.rounded()))% used"))
-            .font(Theme.text(14, weight: .medium))
+            .font(Theme.text(secondarySize, weight: .medium))
             .foregroundStyle(used >= 75 ? Theme.warning : Theme.textTertiary)
         }
       }
       .lineLimit(1)
     case .blocked:
-      Text(tr("막힘", "Blocked")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.critical).lineLimit(1)
+      Text(tr("막힘", "Blocked")).font(Theme.text(primarySize, weight: .semibold)).foregroundStyle(Theme.critical).lineLimit(1)
     case .fableBlocked:
-      Text(tr("Fable 막힘", "Fable blocked")).font(Theme.text(15, weight: .semibold)).foregroundStyle(Theme.warning).lineLimit(1)
+      Text(tr("Fable 막힘", "Fable blocked")).font(Theme.text(primarySize, weight: .semibold)).foregroundStyle(Theme.warning).lineLimit(1)
     case .unavailable:
-      Text(unavailableText).font(Theme.text(14.5, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1)
+      Text(unavailableText).font(Theme.text(compact ? 13 : 14.5, weight: .medium)).foregroundStyle(Theme.textTertiary).lineLimit(1)
     }
   }
 

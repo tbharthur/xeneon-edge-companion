@@ -33,7 +33,7 @@ public struct QuotaFeed: Decodable, Equatable, Sendable {
   }
 }
 
-public enum QuotaProvider: Int, Sendable { case claude, codex }
+public enum QuotaProvider: Int, Sendable { case claude, codex, gemini }
 
 /// How far an account's numbers can be trusted right now.
 public enum QuotaCondition: Sendable { case confirmed, unconfirmed, unknown, signedOut, disabled }
@@ -108,13 +108,16 @@ public enum QuotaHeadline: Equatable, Sendable {
 }
 
 /// The dashboard's account groups, in display order: Claude Ultra plans, the other Claude plans
-/// (the Team seats), then Codex.
+/// (the Team seats), Codex, then Gemini.
 public enum QuotaBucket: Int, CaseIterable, Sendable {
-  case ultra, team, codex
+  case ultra, team, codex, gemini
 
   public static func of(_ account: QuotaAccountView) -> QuotaBucket {
-    if account.provider == .codex { return .codex }
-    return account.premium ? .ultra : .team
+    switch account.provider {
+    case .codex: return .codex
+    case .gemini: return .gemini
+    case .claude: return account.premium ? .ultra : .team
+    }
   }
 
   /// Non-empty buckets in order, each keeping the accounts' existing order.
@@ -148,7 +151,11 @@ public enum QuotaModel {
   }
 
   static func view(_ raw: QuotaFeed.Account, feedReachable: Bool, staleAfter: TimeInterval, now: Date) -> QuotaAccountView {
-    let provider: QuotaProvider = raw.provider == "codex" ? .codex : .claude
+    let provider: QuotaProvider = switch raw.provider {
+    case "codex": .codex
+    case "gemini": .gemini
+    default: .claude
+    }
     var byKey: [String: QuotaWindowView] = [:]
     for w in raw.windows ?? [] {
       let resets = parseDate(w.resetsAt)

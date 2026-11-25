@@ -386,13 +386,14 @@ import Testing
       #"{"id":"\#(id)","provider":"\#(provider)","label":"\#(id)","plan":"\#(plan)","state":"ok","measuredAt":"2026-10-27T03:50:00Z","windows":[{"key":"weekly","usedPct":10}]}"#
     }
     let f = feed([
+      planned("gm", "gemini", "Google AI Ultra"),
       planned("cx", "codex", "Pro"),
       planned("seat", "claude", "Team 5x"),
       planned("ultra", "claude", "Ultra"),
     ].joined(separator: ","))
     let groups = QuotaBucket.group(QuotaModel.accounts(from: f, feedReachable: true, now: now))
-    #expect(groups.map(\.bucket) == [.ultra, .team, .codex])
-    #expect(groups.map { $0.accounts.map(\.id) } == [["ultra"], ["seat"], ["cx"]])
+    #expect(groups.map(\.bucket) == [.ultra, .team, .codex, .gemini])
+    #expect(groups.map { $0.accounts.map(\.id) } == [["ultra"], ["seat"], ["cx"], ["gm"]])
     #expect(QuotaBucket.group([]).isEmpty)
   }
 
