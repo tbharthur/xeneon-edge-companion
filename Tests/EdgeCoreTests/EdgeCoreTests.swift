@@ -864,3 +864,116 @@ import Testing
       == load(#"[{"id":"DBC80976-9B15-4863-919F-BD383F21F202","slots":[\#(quotas),\#(recorder),\#(monitor)]}]"#))
   }
 }
+
+@Suite struct HumanInputTests {
+  let own: Int32 = 4242
+  let names: [Int32: String] = [700: "logioptionsplus_agent", 800: "SkyComputerUseService", 900: "cua"]
+  func classify(_ type: UInt32, pid: Int64, data: Int64 = 0, moved: Bool = true) -> HumanInput.Verdict? {
+    HumanInput.classify(type: type, sourcePID: pid, userData: data, ownPID: own, moved: moved) { names[$0] }
+  }
+
+  @Test func hardwareInputOfEveryKindIsAPerson() {
+    #expect(classify(5, pid: 0) == .person("mouse move"))
+    #expect(classify(1, pid: 0) == .person("click"))
+    #expect(classify(10, pid: 0) == .person("key"))
+    #expect(classify(12, pid: 0) == .person("modifier key"))
+    #expect(classify(22, pid: 0) == .person("scroll"))
+    #expect(classify(29, pid: 0) == .person("gesture"))
+  }
+
+  @Test func displayWakeNoiseIsNotInput() {
+    // Mouse entered/exited and system-defined events follow a display waking on its own.
+    #expect(classify(8, pid: 0) == nil)
+    #expect(classify(9, pid: 0) == nil)
+    #expect(classify(14, pid: 0) == nil)
+    // A pointer "move" with no delta is the window server repositioning the cursor.
+    #expect(classify(5, pid: 0, moved: false) == nil)
+    // A click is a click even without a delta.
+    #expect(classify(1, pid: 0, moved: false) == .person("click"))
+  }
+
+  @Test func automationNeverCounts() {
+    for type: UInt32 in [5, 1, 2, 10, 11, 22, 29] {
+      #expect(classify(type, pid: 800) == .synthetic)
+      #expect(classify(type, pid: 900) == .synthetic)
+      #expect(classify(type, pid: 12345) == .synthetic)
+    }
+  }
+
+  @Test func ownEventsCountOnlyWhenTheyAreEdgeTouches() {
+    #expect(classify(1, pid: Int64(own), data: InputTag.touch) == .person("Edge touch"))
+    #expect(classify(22, pid: Int64(own), data: InputTag.touch) == .person("Edge touch"))
+    // The Dock relocator's pushes, and our events without a tag, are automation.
+    #expect(classify(5, pid: Int64(own), data: InputTag.dock) == .synthetic)
+    #expect(classify(5, pid: Int64(own), data: 0) == .synthetic)
+    // Another process can't borrow the touch tag.
+    #expect(classify(1, pid: 800, data: InputTag.touch) == .synthetic)
+  }
+
+  @Test func logiOptionsRepostsArePerson() {
+    #expect(classify(22, pid: 700) == .person("scroll via logioptionsplus_agent"))
+    #expect(classify(25, pid: 700) == .person("mouse button via logioptionsplus_agent"))
+  }
+
+  @Test func maskCoversExactlyThePersonTypes() {
+    let mask = HumanInput.personMask
+    for type in HumanInput.personTypes.keys { #expect(mask & (UInt64(1) << UInt64(type)) != 0) }
+    for type: UInt64 in [8, 9, 13, 14, 15, 16, 17] { #expect(mask & (UInt64(1) << type) == 0) }
+  }
+}
+
+@Suite struct AwayRequestTests {
+  @Test func blanksOnlyWhenIdleAndWatched() {
+    #expect(AwayRequest.decideBlank(isAway: false, inputWatchRunning: true, secondsSinceInput: 61) == .blanked)
+    #expect(AwayRequest.decideBlank(isAway: false, inputWatchRunning: true, secondsSinceInput: 59) == .ignoredActive)
+    #expect(AwayRequest.decideBlank(isAway: true, inputWatchRunning: true, secondsSinceInput: 1) == .alreadyAway)
+    #expect(AwayRequest.decideBlank(isAway: false, inputWatchRunning: false, secondsSinceInput: 900) == .unavailable)
+  }
+
+  @Test func onlyUnavailableFailsTheCommand() {
+    for outcome in AwayRequest.Outcome.allCases {
+      #expect((outcome.exitStatus != 0) == (outcome == .unavailable))
+    }
+  }
+
+  @Test func messagesRoundTrip() throws {
+    let line = AwayMessage.request(.blank, id: "A1")
+    let parsed = try #require(AwayMessage.parseRequest(line + "\n"))
+    #expect(parsed.command == .blank && parsed.id == "A1")
+    #expect(AwayMessage.parseRequest("dim A1") == nil)
+    #expect(AwayMessage.parseRequest("blank") == nil)
+
+    let reply = AwayMessage.response(id: "A1", outcome: .ignoredActive, detail: "input 12s ago")
+    let answer = try #require(AwayMessage.parseResponse(reply, id: "A1"))
+    #expect(answer.outcome == .ignoredActive && answer.detail == "input 12s ago")
+    #expect(AwayMessage.parseResponse(reply, id: "B2") == nil)
+    #expect(AwayMessage.parseResponse("A1 blanked", id: "A1")?.outcome == .blanked)
+  }
+}
+
+@Suite struct AwayBrightnessTests {
+  @Test func ordinaryReadingIsRestoredAndRemembered() {
+    let p = AwayBrightness.plan(current: 80, lastGood: 99)
+    #expect(p.restoreTo == 80 && p.lastGood == 80)
+  }
+
+  @Test func darkReadingRestoresTheLastOrdinaryLevel() {
+    let p = AwayBrightness.plan(current: 0, lastGood: 99)
+    #expect(p.restoreTo == 99 && p.lastGood == 99)
+    #expect(AwayBrightness.plan(current: 3, lastGood: nil).restoreTo == AwayBrightness.fallback)
+  }
+
+  @Test func noReadingDimsOnlyWithAKnownLevel() {
+    #expect(AwayBrightness.plan(current: nil, lastGood: 100).restoreTo == 100)
+    #expect(AwayBrightness.plan(current: nil, lastGood: nil).restoreTo == nil)
+  }
+
+  @Test func stateReadsTheOldBlankerFile() throws {
+    let old = #"{"lastGood":{"06FF":99,"C4A2":100},"savedLuminance":{},"blanked":false}"#
+    let state = try JSONDecoder().decode(AwayState.self, from: Data(old.utf8))
+    #expect(state.lastGood == ["06FF": 99, "C4A2": 100])
+    #expect(!state.needsRestore)
+    let partial = try JSONDecoder().decode(AwayState.self, from: Data(#"{"savedLuminance":{"06FF":99}}"#.utf8))
+    #expect(partial.needsRestore && !partial.blanked)
+  }
+}

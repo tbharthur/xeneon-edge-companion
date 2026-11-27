@@ -144,11 +144,14 @@ final class SystemEventInjector {
 }
 
 enum EventTag {
-  /// "EDGE" — marks events this app synthesised.
-  static let value: Int64 = 0x4544_4745
+  /// "EDGE" — marks touch replays (a person's input).
+  static let value: Int64 = InputTag.touch
+  /// "EDGD" — marks the Dock relocator's pushes (automation; never wakes the screens).
+  static let dockValue: Int64 = InputTag.dock
 
   static func isOurs(_ event: CGEvent) -> Bool {
-    event.getIntegerValueField(.eventSourceUserData) == value
+    let tag = event.getIntegerValueField(.eventSourceUserData)
+    return tag == value || tag == dockValue
   }
 
   /// NSEvent.Phase raw values used by kCGScrollWheelEventScrollPhase.

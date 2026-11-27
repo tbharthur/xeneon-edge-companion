@@ -28,10 +28,26 @@ final class DockRelocator {
   /// Called on the main thread after a relocation, with whether the Dock is now on the main display.
   var onMoved: ((Bool) -> Void)?
 
+  /// While the office is away nothing moves the Dock and the watch stops; un-pausing makes one
+  /// fresh check (Arthur is back). Main thread.
+  var paused = false {
+    didSet {
+      guard paused != oldValue else { return }
+      if paused {
+        watchTimer?.invalidate()
+        watchTimer = nil
+        cancel()
+      } else if let edge = watchedEdge {
+        arm(edge: edge)
+        nudge(after: 0.3)
+      }
+    }
+  }
+
   /// Starts (or retargets) the watch that keeps the Dock off `edge`. Main thread.
   func arm(edge: CGRect) {
     watchedEdge = edge
-    guard watchTimer == nil else { return }
+    guard watchTimer == nil, !paused else { return }
     let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in self?.tick() }
     t.tolerance = 0.2
     RunLoop.main.add(t, forMode: .common)
@@ -58,7 +74,7 @@ final class DockRelocator {
   }
 
   private func tick() {
-    guard let edge = watchedEdge, !running else { return }
+    guard let edge = watchedEdge, !running, !paused else { return }
     let now = ProcessInfo.processInfo.systemUptime
     guard now >= nextTryAt else { return }
     // A push is pointless behind the lock screen; the Dock is hidden there anyway.
@@ -79,6 +95,7 @@ final class DockRelocator {
 
   /// The user is pushing down at the bottom of the main display: bring the Dock if it is elsewhere.
   func summonToMain() {
+    guard !paused else { return }
     let now = ProcessInfo.processInfo.systemUptime
     guard now - lastSummon > 3 else { return }
     lastSummon = now
@@ -106,7 +123,7 @@ final class DockRelocator {
 
   /// Moves the Dock to the main display if `shouldMove(dockDisplay)` holds. Main thread.
   private func moveToMain(attempt: Int, reason: String, shouldMove: @escaping (CGRect) -> Bool) {
-    guard !running, Permissions.canPostEvents, !Self.screenIsLocked() else { return }
+    guard !running, !paused, Permissions.canPostEvents, !Self.screenIsLocked() else { return }
     let main = CGDisplayBounds(CGMainDisplayID())
     guard let dockDisplay = Self.currentDockDisplay(), !dockDisplay.equalTo(main), shouldMove(dockDisplay) else { return }
     // Never fight the user mid-drag.
@@ -156,7 +173,7 @@ final class DockRelocator {
     }
     let source = CGEventSource(stateID: .hidSystemState)
     source?.localEventsSuppressionInterval = 0
-    source?.userData = EventTag.value
+    source?.userData = EventTag.dockValue
     let approach: CGPoint
     switch edge {
     case .bottom: approach = CGPoint(x: edgePoint.x, y: edgePoint.y - 50)
@@ -166,7 +183,7 @@ final class DockRelocator {
     func move(_ p: CGPoint) {
       CGWarpMouseCursorPosition(p)
       guard let e = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left) else { return }
-      e.setIntegerValueField(.eventSourceUserData, value: EventTag.value)
+      e.setIntegerValueField(.eventSourceUserData, value: EventTag.dockValue)
       e.post(tap: .cghidEventTap)
     }
     move(approach)

@@ -35,6 +35,9 @@ final class TouchController: ObservableObject {
   }
   /// Every batch of recognised gestures, for the touch test screen. Main thread.
   var gestureProbe: (([GestureAction]) -> Void)?
+  /// A finger touched the Edge (HID thread). Returning true swallows that whole touch: the
+  /// first touch on dark screens only wakes them.
+  var onFingerDown: (() -> Bool)?
 
   private let hid = TouchHIDDevice()
   private let systemSink = SystemEventInjector()
@@ -48,6 +51,8 @@ final class TouchController: ObservableObject {
   private var reportCount = 0
   private var rateWindowStart: TimeInterval = 0
   private var probing = false
+  private var fingerDown = false
+  private var swallowing = false
 
   // Main-thread state
   private enum Target { case panel(NSWindow), system }
@@ -164,6 +169,18 @@ final class TouchController: ObservableObject {
       let sample = TouchProbe(point: point, rawX: report.x, rawY: report.y, isDown: report.isDown)
       DispatchQueue.main.async { self.probe?(sample) }
     }
+
+    if report.isDown, !fingerDown {
+      fingerDown = true
+      swallowing = onFingerDown?() ?? false
+    } else if !report.isDown {
+      fingerDown = false
+      if swallowing {
+        swallowing = false
+        return
+      }
+    }
+    if swallowing { return }
 
     let actions = engine.handle(down: report.isDown, point: point, time: time)
     hid.setTicking(engine.needsTick)

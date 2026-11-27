@@ -19,6 +19,9 @@ struct DashboardSwipe {
 struct DashboardView: View {
   @ObservedObject var store: SettingsStore
   @ObservedObject var terminal: TerminalSession
+  /// While the office is away the screens are dark; the widgets leave the screen so none of them
+  /// polls (DDC, network, files) until Arthur is back.
+  @ObservedObject private var away = AwayCoordinator.shared
   @State private var page = 0
   @State private var forward = true
   /// The page dots appear only briefly after a page change, so they never sit over content.
@@ -57,7 +60,7 @@ struct DashboardView: View {
     let count = s.pages.count
     let current = min(page, max(count - 1, 0))
     ZStack {
-      if count > 0 {
+      if count > 0, !away.isQuiet {
         PageGrid(page: s.pages[current])
           .id(s.pages[current].id)
           .transition(.asymmetric(

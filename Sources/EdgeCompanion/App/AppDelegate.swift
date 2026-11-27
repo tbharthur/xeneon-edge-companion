@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   let evictor = WindowEvictor()
   let frameKeeper = WindowFrameKeeper()
   let touchTest = TouchTestController()
+  let away = AwayCoordinator.shared
   lazy var color = ColorService(settings: store)
   lazy var kiosk = KioskController {
     AnyView(DashboardView(store: SettingsStore.shared, terminal: TerminalSession.shared))
@@ -48,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     pointerGuard.onStatus = { [weak self] s in self?.model.pointerStatus = s }
     pointerGuard.dockRelocator.onMoved = { [weak self] ok in self?.frameKeeper.dockMoved(toMain: ok) }
+    touch.onFingerDown = { AwayCoordinator.shared.fingerDown() }
+    away.onChange = { [weak self] in self?.awayChanged() }
+    away.start()
 
     store.$settings
       .removeDuplicates()
@@ -84,12 +88,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    away.restoreBeforeQuit()
     touch.setEnabled(false)
     pointerGuard.configure(edgeBounds: nil, fence: nil, allowOptionEntry: false, dockLock: false)
     monitor.stop()
   }
 
   // MARK: - State fan-out
+
+  /// Away: the dashboard's widgets, the window evictor and the Dock relocator rest until Arthur is
+  /// back and brightness is restored; un-pausing the relocator makes its one Dock check.
+  private func awayChanged() {
+    Log.info(.away, "away \(away.isAway), quiet \(away.isQuiet)")
+    pointerGuard.dockRelocator.paused = away.isQuiet
+    reconfigureInputGuards()
+    updateSuspension()
+  }
 
   private func edgeStateChanged(_ state: DisplayMonitor.State) {
     model.edgeState = state
@@ -134,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let display = monitor.state.display
     let covered = kiosk.coveredBounds
     pointerGuard.configure(edgeBounds: display?.bounds, fence: s.mouseFenceEnabled ? covered : nil, allowOptionEntry: s.fenceBypassWithOption, dockLock: s.dockLockEnabled)
-    evictor.configure(covered: s.evictWindows ? covered : nil, edgeBounds: display?.bounds, freeArea: display.flatMap { freeArea(on: $0, s) })
+    evictor.configure(covered: s.evictWindows && !away.isQuiet ? covered : nil, edgeBounds: display?.bounds, freeArea: display.flatMap { freeArea(on: $0, s) })
     frameKeeper.configure(edgeBounds: display?.bounds, enabled: s.dockLockEnabled)
   }
 
@@ -152,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func updateSuspension() {
-    TelemetryHub.shared.isSuspended = !(monitor.state.isActive && kiosk.isVisible && panelOnScreen)
+    TelemetryHub.shared.isSuspended = !(monitor.state.isActive && kiosk.isVisible && panelOnScreen) || away.isQuiet
   }
 
   // MARK: - Permissions
@@ -183,6 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       model.canPostEvents = post
       Log.info(.app, "permissions: inputMonitoring=\(listen) accessibility=\(post)")
       touch.permissionsChanged()
+      away.permissionsChanged()
       reconfigureInputGuards()
       let s = store.settings
       BannerWatcher.shared.setEnabled(s.notificationsEnabled && s.dashboardEnabled && post)

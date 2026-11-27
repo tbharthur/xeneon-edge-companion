@@ -9,6 +9,11 @@ if CommandLine.arguments.contains(ClaudeStatusLine.flag) {
   exit(0)
 }
 
+// Office away/back requests (Home Assistant's office auto-off): hand to the running app, exit.
+if let i = CommandLine.arguments.firstIndex(of: AwayCommand.flag) {
+  exit(AwayCommand.run(Array(CommandLine.arguments[(i + 1)...])))
+}
+
 // Diagnostic entry point (run from a terminal, no UI).
 if CommandLine.arguments.contains("--telemetry-dump") {
   MainActor.assumeIsolated { TelemetryDebug.run() }

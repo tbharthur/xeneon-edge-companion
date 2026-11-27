@@ -1,6 +1,6 @@
 # Installation and local fork
 
-Updated: 2026-11-19.
+Updated: 2026-11-27.
 
 - Local source: `/Users/arthur/Dev/xeneon-edge-companion`; Arthur's maintained fork is `tbharthur/xeneon-edge-companion`, with upstream `Seol-JY/xeneon-edge-companion`. The local checkout uses remote `fork` for Arthur's repo and `origin` for upstream.
 - EdgeCompanion was built from source, installed and launched on the Mac mini. Keep the local source available for rebuilding customizations and future updates. The fork was added to the repo cleanup configuration as maintained.
@@ -10,4 +10,6 @@ Updated: 2026-11-19.
 - Arthur requested complete removal of Corsair iCUE. The session reported its app, driver, two background services, remaining user/admin data, installed lighting profiles and old installer copies removed, including permanent deletion of copies from iCloud Downloads/trash. The Edge continued working as a regular display.
 - A later concern that this app prevented display sleep or office lights switching off was withdrawn after Arthur identified overhead lights. The session's Mac/Home Assistant checks showed normal display sleep and office-light shutoff; no corrective app change followed.
 
-See [split mode](split-mode.md) and [custom widgets](dashboard-widgets.md) for the installed customizations and validation limits.
+- Since 2026-11-27 the app also owns office blanking for Home Assistant's office auto-off; the assistant repo's `office-display-blanker` LaunchAgent is retired. See [office away](office-away.md). Its listen-only input tap needs Input Monitoring, which the app already holds for touch.
+
+See [split mode](split-mode.md), [custom widgets](dashboard-widgets.md) and [office away](office-away.md) for the installed customizations and validation limits.

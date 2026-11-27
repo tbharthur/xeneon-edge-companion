@@ -6,12 +6,12 @@ enum Log {
   static let subsystem = "pro.seol.EdgeCompanion"
 
   enum Category: String {
-    case app, display, color, touch, kiosk, pointer, evictor, dashboard
+    case app, display, color, touch, kiosk, pointer, evictor, dashboard, away
   }
 
   private static let loggers: [Category: Logger] = {
     var map: [Category: Logger] = [:]
-    for c in [Category.app, .display, .color, .touch, .kiosk, .pointer, .evictor, .dashboard] {
+    for c in [Category.app, .display, .color, .touch, .kiosk, .pointer, .evictor, .dashboard, .away] {
       map[c] = Logger(subsystem: subsystem, category: c.rawValue)
     }
     return map
@@ -59,6 +59,9 @@ enum Log {
 
   private static let fileQueue = DispatchQueue(label: "pro.seol.EdgeCompanion.log", qos: .background)
   private static var fileHandle: FileHandle?
+  /// Lines written since the size was last checked; the app runs for weeks, so the cap is
+  /// re-checked as it goes, not only at launch.
+  private static var linesSinceSizeCheck = 0
 
   static let logFileURL: URL = {
     let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/EdgeCompanion", isDirectory: true)
@@ -68,6 +71,12 @@ enum Log {
 
   private static func appendToFile(_ line: String) {
     let url = logFileURL
+    linesSinceSizeCheck += 1
+    if linesSinceSizeCheck >= 500 {
+      linesSinceSizeCheck = 0
+      try? fileHandle?.close()
+      fileHandle = nil
+    }
     if fileHandle == nil {
       if let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 1_000_000 {
         let old = url.deletingPathExtension().appendingPathExtension("1.log")

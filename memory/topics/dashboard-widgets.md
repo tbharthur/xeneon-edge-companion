@@ -1,6 +1,6 @@
 # Custom dashboard widgets
 
-Updated: 2026-11-19.
+Updated: 2026-11-27.
 
 EdgeCompanion has no plugin system; custom widgets were added to the local source and the app rebuilt/reinstalled. Its built-in web page widget can display a web dashboard, but the session reported only one such widget supported.
 
@@ -31,7 +31,7 @@ One card (kind `callSound`, `CallSoundWidget.swift`), approved by Arthur on 2026
 - Sound section (the remaining 384): three equal channel strips 88 wide, 10 apart: Mic | LG | Sonos. The mic strip is one tall mute key (amber when muted, dimmed "No mic" without one). The LG (purple fill) and Sonos (blue fill) strips have the name and level on top, the fader, and a 72-tall Mute key, so all three mutes sit in one row along the bottom. Fader caps are 56 wide at this size.
 - Geometry comes from EdgeCore `CallCardLayout` (tested): rows stay 104 in taller cards and shrink (to 56) in shorter ones; a card wider than 1.2× its height puts the sound beside the controls; a strip narrower than 64 moves the mic into a bar above the faders; a fader that would be under 40 tall is left out, leaving the level and Mute key; fader ticks are drawn only where the strip has room beside the cap. Nothing overflows its strip. Other slot sizes are a fallback only.
 - Saved layouts: old `recorder` and `monitorVolume` slots decode as `callSound`. When a page had both, the card takes the first one's place and a slot covering both (EdgeCore `WidgetSize.covering`: two talls make a large). The layout model (`WidgetKind`, `WidgetSlot`, `DashboardPage`, cross-page de-duplication) lives in EdgeCore `DashboardLayout.swift` so the migration is tested: both cards on one page, one card, cards on different pages (the first wins), unknown and malformed slots, and loading twice. Arthur's saved page (quotas large, recorder tall, monitor volume tall) loads as quotas + the large card with no reset. The stored JSON keeps the old kinds until the settings are next saved; each load migrates again.
-- The controllers and their behaviour are unchanged by the merge; each polls only while the card is on screen.
+- The controllers and their behaviour are unchanged by the merge; each polls only while the card is on screen. While the office is away (screens blanked), every widget leaves the screen, so none polls; see [office away](office-away.md).
 - Verified 2026-11-19: 84 EdgeCore tests pass; sample states (idle, ringing, on a call while recording with the mic muted, transcribing, starting, sending, LG muted/unreachable/waiting, Sonos unreachable, Local Network not allowed, no Accessibility + no mic + recorder error, and tall/wide/short fallbacks) were rendered with a throwaway offscreen harness (the app has no committed preview path). After install, the live panel showed quotas + the new card from Arthur's saved layout with no reset; the card measured 320 × 662 (content 284 × 626). No control on it was touched.
 
 ### Recorder

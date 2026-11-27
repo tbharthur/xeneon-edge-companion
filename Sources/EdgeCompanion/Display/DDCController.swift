@@ -11,23 +11,37 @@ private func IOAVServiceReadI2C(_ service: CFTypeRef, _ chipAddress: UInt32, _ o
 private func IOAVServiceWriteI2C(_ service: CFTypeRef, _ chipAddress: UInt32, _ dataAddress: UInt32, _ buffer: UnsafeMutableRawPointer, _ length: UInt32) -> IOReturn
 
 /// DDC/CI access to one display. The Edge is limited to the colour VCP codes in `EdgeVCP`; a desk
-/// monitor to the audio codes in `MonitorAudioVCP`.
+/// monitor to the audio codes in `MonitorAudioVCP`; any display to brightness while the office is
+/// away (`AwayBrightness`).
 /// All I/O runs on one serial queue; the bus is slow (tens of ms per transaction) and shared
 /// with MonitorControl, so we keep transactions short and spaced. Queue confinement makes it safe
 /// to hand between threads.
 final class DDCController: @unchecked Sendable {
-  enum Display {
+  enum Display: Equatable {
     /// The Corsair Xeneon Edge.
     case edge
     /// The first external display that is not the Edge.
     case monitor
+    /// The external display whose framebuffer has this IORegistry path (`IODisplayLocation`).
+    case located(String)
 
     func framebuffers() -> [IORegistryDisplays.Framebuffer] {
       switch self {
       case .edge: return IORegistryDisplays.edgeFramebuffers()
       case .monitor: return IORegistryDisplays.monitorFramebuffers()
+      case let .located(path):
+        var all = IORegistryDisplays.framebuffers { _ in true }
+        all.removeAll { fb in
+          guard fb.location != path else { return false }
+          IOObjectRelease(fb.avServiceEntry)
+          return true
+        }
+        return all
       }
     }
+
+    /// Desk monitors drop the first request frame; the Edge does not.
+    var isMonitorLike: Bool { self != .edge }
   }
 
   enum DDCError: Error, CustomStringConvertible {
@@ -47,6 +61,11 @@ final class DDCController: @unchecked Sendable {
   let queue: DispatchQueue
   let display: Display
   private var service: CFTypeRef?
+  /// The framebuffer path of the cached service; transactions on one display share a lock
+  /// across controllers, so two features never interleave frames on the same bus.
+  private var busKey: String?
+  private static let busLocksLock = NSLock()
+  private static var busLocks: [String: NSLock] = [:]
   /// Product name of the display the cached service belongs to (queue-confined).
   private(set) var productName: String?
 
@@ -60,6 +79,7 @@ final class DDCController: @unchecked Sendable {
     queue.async {
       self.service = nil
       self.productName = nil
+      self.busKey = nil
     }
   }
 
@@ -85,20 +105,44 @@ final class DDCController: @unchecked Sendable {
     try write(code: vcp.rawValue, value)
   }
 
-  private func read(code vcp: UInt8) throws -> DDCPacket.VCPReply {
+  /// Brightness (MCCS 0x10), for dimming while the office is away.
+  func readBrightness() throws -> DDCPacket.VCPReply {
+    try read(code: AwayBrightness.vcp)
+  }
+
+  func writeBrightness(_ value: UInt16) throws {
+    try write(code: AwayBrightness.vcp, value)
+  }
+
+  private func onBus<T>(_ body: (CFTypeRef) throws -> T) throws -> T {
     let svc = try resolveService()
+    guard let key = busKey, !key.isEmpty else { return try body(svc) }
+    Self.busLocksLock.lock()
+    let lock = Self.busLocks[key] ?? NSLock()
+    Self.busLocks[key] = lock
+    Self.busLocksLock.unlock()
+    lock.lock()
+    defer { lock.unlock() }
+    return try body(svc)
+  }
+
+  private func read(code vcp: UInt8) throws -> DDCPacket.VCPReply {
+    try onBus { svc in try read(code: vcp, svc: svc) }
+  }
+
+  private func read(code vcp: UInt8, svc: CFTypeRef) throws -> DDCPacket.VCPReply {
     var request = DDCPacket.getVCP(vcp)
     // The LG desk monitor drops the first request frame and answers an empty "not ready" reply,
     // so a monitor gets the request twice, 10 ms apart, as m1ddc sends it (measured on the LG:
     // about 1 in 10 reads answered with one frame, 8-9 in 10 with two). It also gets more tries.
-    let frames = display == .monitor ? 2 : 1
-    let attempts = display == .monitor ? 6 : 5
+    let frames = display.isMonitorLike ? 2 : 1
+    let attempts = display.isMonitorLike ? 6 : 5
     for attempt in 0 ..< attempts {
       for _ in 0 ..< frames {
         usleep(10000)
         _ = IOAVServiceWriteI2C(svc, UInt32(DDCPacket.chipAddress), UInt32(DDCPacket.dataAddress), &request, UInt32(request.count))
       }
-      usleep(display == .monitor ? 40000 : 50000)
+      usleep(display.isMonitorLike ? 40000 : 50000)
       var reply = [UInt8](repeating: 0, count: 11)
       if IOAVServiceReadI2C(svc, UInt32(DDCPacket.chipAddress), 0, &reply, UInt32(reply.count)) == kIOReturnSuccess {
         switch DDCPacket.parseReply(reply, expecting: vcp) {
@@ -115,7 +159,10 @@ final class DDCController: @unchecked Sendable {
   }
 
   private func write(code vcp: UInt8, _ value: UInt16) throws {
-    let svc = try resolveService()
+    try onBus { svc in try write(code: vcp, value, svc: svc) }
+  }
+
+  private func write(code vcp: UInt8, _ value: UInt16, svc: CFTypeRef) throws {
     var packet = DDCPacket.setVCP(vcp, value: value)
     // Sent twice, 10 ms apart, as MonitorControl does; some scalers drop the first frame.
     var ok = false
@@ -138,6 +185,7 @@ final class DDCController: @unchecked Sendable {
     }
     service = svc
     productName = fb.productName
+    busKey = fb.location
     return svc
   }
 }

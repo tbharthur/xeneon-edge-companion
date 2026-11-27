@@ -108,6 +108,9 @@ enum IORegistryDisplays {
   struct Framebuffer {
     var productName: String
     var serial: String
+    /// The framebuffer's IORegistry path, which CoreDisplay reports as a display's
+    /// `IODisplayLocation`; ties a CoreGraphics display to its DDC service.
+    var location: String
     /// The `DCPAVServiceProxy` entry that follows the framebuffer, when it is an external port.
     var avServiceEntry: io_service_t
   }
@@ -133,7 +136,8 @@ enum IORegistryDisplays {
     defer { IOObjectRelease(iterator) }
 
     var name = [CChar](repeating: 0, count: 128)
-    var current: (product: String, serial: String)?
+    var current: (product: String, serial: String, location: String)?
+    var path = [CChar](repeating: 0, count: 512)
     while true {
       let entry = IOIteratorNext(iterator)
       guard entry != IO_OBJECT_NULL else { break }
@@ -145,13 +149,14 @@ enum IORegistryDisplays {
            let product = attrs["ProductAttributes"] as? [String: Any],
            let productName = product["ProductName"] as? String,
            matches(productName) {
-          current = (productName, (product["AlphanumericSerialNumber"] as? String) ?? "")
+          let location = IORegistryEntryGetPath(entry, kIOServicePlane, &path) == KERN_SUCCESS ? String(cString: path) : ""
+          current = (productName, (product["AlphanumericSerialNumber"] as? String) ?? "", location)
         }
         IOObjectRelease(entry)
       } else if entryName == "DCPAVServiceProxy", let fb = current {
         let location = IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String
         if location == "External" {
-          result.append(Framebuffer(productName: fb.product, serial: fb.serial, avServiceEntry: entry))
+          result.append(Framebuffer(productName: fb.product, serial: fb.serial, location: fb.location, avServiceEntry: entry))
         } else {
           IOObjectRelease(entry)
         }

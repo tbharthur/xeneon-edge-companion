@@ -12,7 +12,9 @@ import EdgeCore
 /// macOS keeps two cursor positions: the HID system's (which the visible cursor follows) and the
 /// WindowServer's (where clicks land). Rewriting the event location at the HID tap only moves the
 /// second, so every clamp also warps the cursor, which resets both. Doing it at the HID tap, before
-/// the event spreads, avoids the bounce of correcting an already-moved cursor.
+/// the event spreads, avoids the bounce of correcting an already-moved cursor. The warp itself is a
+/// WindowServer call that blocks while WindowServer is busy, so it runs on its own queue (newest
+/// target wins); the tap only rewrites the event and never waits, so macOS never disables it.
 /// Events we synthesise for touch carry `EventTag` and pass untouched.
 /// Runs on its own thread so a busy main thread can never stall the system pointer.
 final class PointerGuard {
@@ -56,6 +58,10 @@ final class PointerGuard {
   }
   /// Moves the Dock off the Edge when the Dock lock is on.
   let dockRelocator = DockRelocator()
+
+  /// Clamp warps, off the tap thread. `pendingWarp` is guarded by `lock`.
+  private let warpQueue = DispatchQueue(label: "pro.seol.EdgeCompanion.pointer.warp", qos: .userInteractive)
+  private var pendingWarp: CGPoint?
 
   private var unlockObserver: NSObjectProtocol?
 
@@ -257,11 +263,34 @@ final class PointerGuard {
 
     if target != original {
       event.location = target
-      // Reset the HID-side position too; re-associating cancels the input suppression a warp starts.
+      requestWarp(to: target)
+    }
+    return Unmanaged.passUnretained(event)
+  }
+
+  /// Resets the HID-side position too; re-associating cancels the input suppression a warp starts.
+  /// Coalesces: while a warp is queued, later clamps only replace its target.
+  private func requestWarp(to target: CGPoint) {
+    lock.lock()
+    let idle = pendingWarp == nil
+    pendingWarp = target
+    lock.unlock()
+    guard idle else { return }
+    warpQueue.async { [weak self] in self?.drainWarps() }
+  }
+
+  private func drainWarps() {
+    while true {
+      lock.lock()
+      guard let target = pendingWarp else {
+        lock.unlock()
+        return
+      }
+      pendingWarp = nil
+      lock.unlock()
       CGWarpMouseCursorPosition(target)
       CGAssociateMouseAndMouseCursorPosition(1)
     }
-    return Unmanaged.passUnretained(event)
   }
 
 }
