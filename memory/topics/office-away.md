@@ -48,7 +48,7 @@ On 2026-11-27 the old blanker held Arthur's screens dark for 48 hours and then, 
 ## Input paths
 
 - PointerGuard's tap no longer calls WindowServer. It rewrites the event location and hands the cursor warp to its own queue, where the newest target wins.
-- Verified 2026-11-27 with CGGetEventTapList: both taps enabled, PointerGuard about 0.2 ms average latency.
+- Verified 2026-11-27 with CGGetEventTapList: both taps enabled, none disabled by timeout since the install. The list's latency fields are not a live measure: they stayed frozen at one value for 10 s while the pointer moved through the tap.
 
 ## Verification
 
@@ -59,5 +59,10 @@ Verified 2026-11-27 on the installed app with Arthur at the desk:
 - Posted moves, button presses, keys and scrolls, at both the HID and session levels, were classified synthetic. The app's last-person-input time did not move across them; his own mouse and Logi scrolls counted.
 - The app's own DDC path read the LG (99) and the Edge (100) in 0.08 s each.
 - Exit codes through a copy of `office-away` with a stub mute: 0 with the app running, 4 just after it stopped, 3 after 20 s down.
+- A 7-second live blank, run after 5 minutes of HID idle:
+  - Gamma read dark on both displays, and both monitors were dimmed over DDC about 1.1 s after the request.
+  - Posted synthetic input did not wake them. A second request answered `already-away`.
+  - `--away unblank` answered in 0.13 s. Brightness was back 0.45 s later (LG 99, Edge 100, read back), and the quiet lifted.
+- Not yet seen live: Arthur's own hand waking dark screens after a real Home Assistant auto-off. Hardware input can't be synthesised (posted events always carry the poster's pid), so that path rests on the classifier tests and the measured pid 0 of his real mouse, keyboard and clicks.
 
 See [installation](installation.md) for building and permissions.
