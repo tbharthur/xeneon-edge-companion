@@ -27,6 +27,7 @@ On 2026-11-27 the old blanker held Arthur's screens dark for 48 hours and then, 
 - Everything else posted never counts: Computer Use, the Dock relocator (its own tag `InputTag.dock`) and any other automation.
 - A pointer move with zero delta does not count (measured: about 15% of his real move events have zero delta; real movement always includes non-zero ones). Mouse entered/exited and system-defined events, which a display waking on its own posts, are not in the mask.
 - A finger on the Edge counts directly from its HID reports (`TouchController.onFingerDown`). While dark, that first touch only wakes; it is not delivered.
+- A key or click that wakes dark screens is delivered to the front app as usual (system default). Arthur often wakes with Space and chose to keep that behaviour (2026-11-27); do not swallow it.
 
 ## Away
 
@@ -63,6 +64,6 @@ Verified 2026-11-27 on the installed app with Arthur at the desk:
   - Gamma read dark on both displays, and both monitors were dimmed over DDC about 1.1 s after the request.
   - Posted synthetic input did not wake them. A second request answered `already-away`.
   - `--away unblank` answered in 0.13 s. Brightness was back 0.45 s later (LG 99, Edge 100, read back), and the quiet lifted.
-- Not yet seen live: Arthur's own hand waking dark screens after a real Home Assistant auto-off. Hardware input can't be synthesised (posted events always carry the poster's pid), so that path rests on the classifier tests and the measured pid 0 of his real mouse, keyboard and clicks.
+- Seen live 2026-11-27: a real Home Assistant auto-off blanked at 11:01:59; his USB Receiver mouse turned the displays on at 11:07:44 and the app logged "back: mouse move" and restored brightness at 11:07:51, with no pointer-tap timeouts. The ~7 s from the first HID tickle to recognised input is unexplained (no input was logged in between); check the first-move timing on the next real return. The Dock still landed on the Edge and took until 11:08:04 to move back.
 
 See [installation](installation.md) for building and permissions.
